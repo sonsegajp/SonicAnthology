@@ -329,7 +329,10 @@ static int s_loader_active;
 static uint8_t scene_read8(unsigned a)
 {
     a &= 0xFFFFFFu;
-    return a < 0x400000u ? g_rom[a] : a >= 0xFF0000u ? g_ram[a & 65535u] : 0;
+    if (a < 0x400000u) return g_rom[a];
+    if (a >= 0xFF0000u) return g_ram[a & 65535u];
+    /* the opt-in expansion bank (game-added zones keep their layouts there) */
+    return g_rom_ext && a - 0x400000u < g_rom_ext_size ? g_rom_ext[a - 0x400000u] : 0;
 }
 static uint16_t scene_read16(unsigned a) { return (uint16_t)((scene_read8(a)<<8)|scene_read8(a+1)); }
 static uint32_t scene_read32(unsigned a) { return ((uint32_t)scene_read16(a)<<16)|scene_read16(a+2); }
@@ -460,8 +463,12 @@ static void spawn_scene(void)
     write16(0xF76E,camera&0xFF80);write16(0xF770,cy&0xFF80);
     write16(0xF7DA,(camera-128)&0xFF80);write16(0xEF64,(cy-128)&0xFF80);
 }
+static S3VideoRingLayout s_ring_layout;
+void s3_video_set_ring_layout(S3VideoRingLayout fn) { s_ring_layout = fn; }
 static unsigned rings_base(void)
 {
+    unsigned own=s_ring_layout?s_ring_layout():0;
+    if(own)return own;
     unsigned index=(g_ram[0xFE10]*8u)+((g_ram[0xFE11]&1u)*4u);
     /* Ring layouts begin with an x=0 sentinel, native status index zero. */
     return scene_read32(S3_RINGS+index);
@@ -469,7 +476,7 @@ static unsigned rings_base(void)
 static unsigned rings_end(void)
 {
     unsigned p=rings_base();
-    if(p>=0x400000u)return p;
+    if(p>=0x400000u+(g_rom_ext?g_rom_ext_size:0u))return p;
     for(unsigned n=0;n<512 && scene_read16(p)!=65535u;++n)p+=4;
     return p;
 }
@@ -645,7 +652,10 @@ static void draw_scene_sprites(const GVDP *v,int line,uint32_t *out,int width,
             uint8_t p=pattern_pixel(v,cell,ix,iy);
             if(!p)continue;
             s_priority[x]|=2;
-            if(s->hud==1 || s->hud==2 || (s->attr&0x8000) || !(s_priority[x]&1))out[x]=palette[p];
+            /* extended sprite lines (game-added art keeping its own colours) */
+            int ext=p<16?gvdp_ext_line(cell&2047u):0;
+            uint32_t c=ext?genesis_dac_cram_to_argb(gvdp_ext_color(line,ext,p),GENESIS_DAC_NORMAL):palette[p];
+            if(s->hud==1 || s->hud==2 || (s->attr&0x8000) || !(s_priority[x]&1))out[x]=c;
         }
     }
 }
@@ -672,6 +682,51 @@ static void aiz_palette(const AizArt *art,const GVDP *v,uint32_t *out)
         }
         out[i]=genesis_dac_cram_to_argb((uint16_t)faded,GENESIS_DAC_NORMAL);
     }
+}
+
+/* Background blur (trilogy option): plane B and the backdrop are softened
+ * behind the level, before the sprites go on. A box across the line and a
+ * running blend down the screen; the level's own plane stays sharp. */
+static int s_bg_blur;
+void s3_video_set_bg_blur(int level) { s_bg_blur = level < 0 ? 0 : level > 3 ? 3 : level; }
+static uint32_t *s_blur_line;
+static uint8_t *s_blur_mask;
+static uint32_t (*s_blur_acc)[3];
+static int s_blur_cap, s_blur_first;
+static int blur_buffers(int width, int line)
+{
+    if(width>s_blur_cap) {
+        uint32_t *l=(uint32_t *)realloc(s_blur_line,(size_t)width*sizeof *l);
+        if(l)s_blur_line=l;
+        uint8_t *m=(uint8_t *)realloc(s_blur_mask,(size_t)width);
+        if(m)s_blur_mask=m;
+        uint32_t (*a)[3]=(uint32_t (*)[3])realloc(s_blur_acc,(size_t)width*sizeof *a);
+        if(a)s_blur_acc=a;
+        if(!l || !m || !a)return 0;
+        s_blur_cap=width;
+        s_blur_first=1;
+    }
+    if(line==0)s_blur_first=1;
+    return 1;
+}
+static void blur_background(uint32_t *out, int width)
+{
+    static const int radius[4]={0,1,1,2}, carry[4]={0,48,96,128};   /* LOW, MEDIUM, HIGH */
+    int r=radius[s_bg_blur], keep=carry[s_bg_blur];          /* box radius; share of the line above (/256) */
+    uint32_t sum[3]={0,0,0};
+    int n=0;
+    for(int x=-r;x<width+r;++x) {
+        if(x+r<width && x+r>=0){uint32_t c=s_blur_line[x+r];sum[0]+=(c>>16)&255;sum[1]+=(c>>8)&255;sum[2]+=c&255;++n;}
+        if(x-r-1>=0 && x-r-1<width){uint32_t c=s_blur_line[x-r-1];sum[0]-=(c>>16)&255;sum[1]-=(c>>8)&255;sum[2]-=c&255;--n;}
+        if(x<0 || x>=width || n<=0)continue;
+        for(int k=0;k<3;++k) {
+            uint32_t h=(sum[k]<<8)/(uint32_t)n;              /* 8.8 */
+            s_blur_acc[x][k]=s_blur_first?h:(s_blur_acc[x][k]*(uint32_t)keep+h*(uint32_t)(256-keep))>>8;
+        }
+        if(s_blur_mask[x])
+            out[x]=(out[x]&0xFF000000u)|((s_blur_acc[x][0]>>8)<<16)|((s_blur_acc[x][1]>>8)<<8)|(s_blur_acc[x][2]>>8);
+    }
+    s_blur_first=0;
 }
 
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
@@ -764,6 +819,10 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         if(level)s_stage_width=stage_width();
         s_camera=camera;s_camera_y=camera_y;++s_frames;
         s_left=level?view_left(camera,width):camera-(width-nw)/2;
+        if(level && s_display && s_display->scene==1 && getenv("TRILOGY_SPRLOG") &&
+           (s_display->camera_x!=camera || s_display->camera_y!=camera_y))   /* development */
+            fprintf(stderr,"[SPR] f%u serial %u/%u cam %d,%d shown %d,%d misses %u holds %u\n",s_frames,s_display->serial,s_serial,
+                    s_display->camera_x,s_display->camera_y,camera,camera_y,s_scene_misses,s_scene_holds);
     }
     int origin=level?s_camera-s_left:(width-nw)/2;
     s_native_x=origin;
@@ -848,6 +907,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * is the close, collidable boss arena entered by the later events. */
     if(bg_world && s_frame_zone==22 && !s_frame_act && !s_frame_bg_event)
         bg_width=512;
+    int blur=s_bg_blur && level && blur_buffers(width,line);
     for(int x=0;x<width;++x) {
         int nx=x-origin,wx=level?nx+camera:nx-hs_a;
         int reference_bx=nx-hs_b,bx=reference_bx;
@@ -938,6 +998,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         int foreground=ap && !fire_curtain && ((a&0x8000) || !bp || !(b&0x8000));
         uint8_t p=foreground?ap:bp;
         out[x]=p?(foreground?apalette[p]:bpalette[p]):backdrop;
+        if(p && p<16) {   /* extended line on a line-0 plane tile (game-added art keeping its own colours) */
+            int ext=gvdp_ext_line((foreground?a:b)&2047u);
+            if(ext)out[x]=genesis_dac_cram_to_argb(gvdp_ext_color(line,ext,p),GENESIS_DAC_NORMAL);
+        }
+        if(blur){s_blur_line[x]=bp?bpalette[bp]:backdrop;s_blur_mask[x]=(uint8_t)!foreground;}
         /* Outside a native special-stage projection only planes are drawn,
          * so plane priority alone
          * determines shadow; native operator sprites remain in the center. */
@@ -984,6 +1049,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
 
         }
     }
+    if(blur)blur_background(out,width);
     if(!level) {
         /* Logos/copyright/menus remain centered at their original pixel
          * scale. The full-width background follows the live scene palette. */
@@ -1069,4 +1135,12 @@ void s3_video_state(S3StateIO *io)
         s_frame_special = ss_ready = ss_latched = 0;
     }
 }
-const GameVideo sonic3_video = { configure, enabled, width, scanline };
+/* Optional full-frame overlay owned by a game layer (trilogy pause menu). */
+static S3VideoFrameOverlay s_frame_overlay;
+void s3_video_set_frame_overlay(S3VideoFrameOverlay draw) { s_frame_overlay = draw; }
+static void overlay_scanline(const struct GVDP *v, int line, uint32_t *out, int width)
+{
+    (void)v;
+    if (s_frame_overlay) s_frame_overlay(line, out, width);
+}
+const GameVideo sonic3_video = { configure, enabled, width, scanline, overlay_scanline };

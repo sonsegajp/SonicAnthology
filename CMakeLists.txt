@@ -237,6 +237,11 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
             "${S3_GAME_COMMON}/sonic3_title_art.c"
             "${S3_GAME_COMMON}/sonic3_mods.c")
     endif()
+    # Sonic Trilogy layer: S1/S2 zones on the combined cart (game/trilogy).
+    if(PREFIX STREQUAL "sonic3k")
+        file(GLOB _TRILOGY_SRC "${CMAKE_SOURCE_DIR}/game/trilogy/*.c")
+        list(APPEND SHARED_SRC ${_TRILOGY_SRC})
+    endif()
     # Clean-room 68000 interpreter/decoder/rom_parser: the _wt-cosim engine's
     # shared glue.c references m68k_interp_run_framed (Tier-3 native floor)
     # unconditionally, so every target built against it links these (AGPL-free).
@@ -255,6 +260,7 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
         "${RECOMP_ROOT}/recompiler/src"          # m68k_decoder.h (floor)
         "${GAME}"
         "${S3_GAME_COMMON}"                      # sonic3_video.h (all modes)
+        "${CMAKE_SOURCE_DIR}/game/trilogy"
     )
     if(GENESIS_Z80_RECOMP)
         list(APPEND INCLUDES_NATIVE
@@ -371,6 +377,10 @@ foreach(_repo SOURCE ENGINE UI DISASM)
         set(_dir "${RECOMP_ROOT}")
     elseif(_repo STREQUAL "UI")
         set(_dir "${CMAKE_SOURCE_DIR}/recomp-ui")
+        if(NOT EXISTS "${_dir}/.git")              # (the trilogy doesn't use recomp-ui)
+            set(S3_UI_COMMIT "none")
+            continue()
+        endif()
     else()
         set(_dir "${S3_GAME_ROOT}/skdisasm")
     endif()
@@ -399,6 +409,10 @@ endforeach()
 # its OWN box art under a distinct name (BOXART_NAME); the runner's seam selects
 # it per mode via g_game_spec.boxart -> assets/img/boxart-<mode>.tga. Defines
 # RECOMP_LAUNCHER.
+# Sonic Trilogy: no recomp-ui launcher (the game starts straight in; setup is
+# TrilogyBuilder, tools/trilogy/builder). S3_RECOMP_UI=ON restores it.
+option(S3_RECOMP_UI "Build the recomp-ui pre-boot launcher" OFF)
+if(S3_RECOMP_UI)
 set(RECOMP_UI_ENABLE_MODS ON CACHE BOOL "Expose Sonic 3 family's opt-in built-in mods")
 include(${CMAKE_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
 recomp_target_launcher_ui(Sonic3Recomp
@@ -410,6 +424,7 @@ recomp_target_launcher_ui(Sonic3KRecomp
 recomp_target_launcher_ui(SonicAndKnucklesRecomp
     CONSOLE genesis
     BOXART ${CMAKE_SOURCE_DIR}/boxart-sonick.tga  BOXART_NAME boxart-sonick.tga)
+endif()
 
 option(BUILD_TESTING "Build ROM-independent renderer and framework tests" ON)
 if(BUILD_TESTING)

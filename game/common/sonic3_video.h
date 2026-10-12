@@ -15,3 +15,12 @@ typedef void (*S3VideoActorOverlay)(const struct GVDP *v, int line, uint32_t *ou
                                     int origin, const uint32_t *palette, uint8_t *priority,
                                     int camera_x, int camera_y);
 void s3_video_set_actor_overlay(S3VideoActorOverlay draw);
+/* Final-frame rows (native or custom width) after all rendering; may rewrite
+ * the row (pause menu blur/dim). Must not touch guest state. */
+typedef void (*S3VideoFrameOverlay)(int line, uint32_t *out, int width);
+void s3_video_set_frame_overlay(S3VideoFrameOverlay draw);
+/* Level background blur: 0 off, 1 low, 2 high. */
+void s3_video_set_bg_blur(int level);
+/* Zones the game adds itself (not in the retail tables): their ring layout. */
+typedef unsigned (*S3VideoRingLayout)(void);
+void s3_video_set_ring_layout(S3VideoRingLayout fn);

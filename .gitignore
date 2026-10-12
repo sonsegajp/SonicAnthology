@@ -35,3 +35,8 @@ release-linux/
 *.lock
 *.lock~
 **/dispatch_misses.toml
+
+# Sonic Trilogy: local scratch, ROM rips and test installs never ship
+scratch/
+title_card_digits/
+release-stage/

@@ -1,4 +1,81 @@
-# Sonic 3 & Knuckles — Recompiled
+# Sonic Trilogy
+
+**Sonic 1, Sonic 2 and Sonic 3 & Knuckles as one game**: every zone of all
+three, played in the Sonic 3 & Knuckles engine, natively on PC. Sonic 3 & Knuckles
+itself runs as a static recompilation; Sonic 1 and Sonic 2's zones, objects,
+bosses, special stages, music and endings are rebuilt on top of it in our own C,
+transcribed from the original games' code.
+
+- All of Sonic 1 and Sonic 2 (endings included) beside Sonic 3 & Knuckles, from one Data Select
+- Play any zone as Sonic, Tails or Knuckles, with abilities and achievements to unlock
+  (drop dash, peel-out, homing attack; Tails' flight boost; Knuckles' burrow and wall spin dash...)
+- Options: widescreen, CRT filters, background blur, colour filters and more (pause menu)
+
+**No game data is included.** Sonic Trilogy is built on your PC from your own
+cartridge dumps by **TrilogyBuilder**.
+
+## Playing
+
+1. Download the latest zip from [Releases](../../releases) and unpack it anywhere.
+2. Run **TrilogyBuilder.exe** and choose your dumps (it checks them):
+
+   | Game | Dump | CRC32 |
+   |---|---|---|
+   | Sonic the Hedgehog | REV01 (World) | `AFE05EEE` |
+   | Sonic the Hedgehog 2 | REV01 (World, Rev A) | `24AB4C3A` |
+   | Sonic 3 & Knuckles | the 4 MB lock-on cart, **or** Sonic & Knuckles + Sonic 3 | `63522553` (`0658F691` + `9BC192CE`) |
+
+   It writes `sonic3k.bin`, `trilogy.bin` and the Data Select previews beside the
+   game (about 7 minutes with the previews). Dumps left beside the game or in a
+   `roms` folder are found automatically.
+3. Press **Play**, or run **SonicTrilogy.exe** from then on.
+
+Saves (`sonic3k.srm`), progress (`trilogy-progress.ini`) and settings
+(`settings.ini`, including the controls) stay beside the game. F11 or
+Alt+Enter toggles fullscreen.
+
+## Building from source
+
+Needs Visual Studio 2022 (MSVC), CMake 3.16+, and Python 3.10+ with Pillow for
+the builder. The S3K recompiler reads your Sonic 3 & Knuckles dump at build time.
+
+```bash
+git clone --recursive https://github.com/sonsegajp/SonicTrilogy.git
+cd SonicTrilogy
+# put your Sonic 3 & Knuckles lock-on dump at game/sonic3k/sonic3k.bin
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --target Sonic3KRecomp
+python tools/trilogy/builder/trilogy_builder.py build/Release     # the builder, from source
+python tools/trilogy/builder/make_builder.py                      # or package TrilogyBuilder.exe (PyInstaller)
+```
+
+The trilogy lives in `game/trilogy/` (the C layer) and `tools/trilogy/` (the
+converters the builder runs). `tools/trilogy/data/` holds only label addresses,
+exported from the Sonic Retro disassemblies by `export_syms.py`.
+
+## Credits & license
+
+Built on [mstan](https://github.com/mstan)'s
+[Sonic3AndKnucklesRecomp](https://github.com/mstan/Sonic3AndKnucklesRecomp) and
+[segagenesisrecomp](https://github.com/mstan/segagenesisrecomp) (engine changes
+on [our fork](https://github.com/sonsegajp/segagenesisrecomp/tree/sonic-trilogy)),
+with addresses and names from Sonic Retro's
+[skdisasm](https://github.com/sonicretro/skdisasm),
+[s1disasm](https://github.com/sonicretro/s1disasm) and
+[s2disasm](https://github.com/sonicretro/s2disasm).
+Code: [PolyForm Noncommercial 1.0.0](LICENSE.md); third-party components: see
+`segagenesisrecomp/THIRD-PARTY-LICENSES.md`.
+
+Sonic the Hedgehog is a trademark of SEGA. This is a non-commercial fan project,
+not affiliated with or endorsed by SEGA. Use your own legally obtained cartridges.
+
+---
+
+## Upstream: Sonic 3 & Knuckles — Recompiled
+
+The rest of this file is the upstream project's README, for the recompiler,
+its other build modes and its tooling.
+
 
 Native x64 static recompilation of **Sonic the Hedgehog 3** and **Sonic &
 Knuckles** for the Sega Genesis / Mega Drive, built on the shared

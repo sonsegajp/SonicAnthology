@@ -17,6 +17,8 @@
 #include "sonic3_mods.h"
 #include "sonic3_state.h"
 #include "sonic3_state_build.h"
+#include "trilogy.h"
+const char *tri_resolve_rom(void);       /* trilogy_setup.c */
 
 #include <stddef.h>
 #include <string.h>
@@ -43,8 +45,15 @@ extern void func_000584(void);  /* VInt         ($000584) */
 extern void func_000D0C(void);  /* JmpTo_HInt   ($000D0C) */
 extern void func_000D10(void);  /* HInt         ($000D10) */
 
-static void s3k_call_entry_point(void) { s3_army_init(); recomp_call_addr(0x000206u); }
-static void s3k_call_vblank(void)      { s3_video_vblank(); s3_army_vblank(); recomp_call_addr(0x000584u); }
+static int s3k_instruction(uint32_t pc)
+{
+    if (trilogy_instruction(pc)) return 1;
+    if (trilogy_owns(pc) && !s3_army_owns(pc)) return 0;     /* keep the renderer off our sites */
+    return s3_sk_instruction_hook(pc);
+}
+static void s3k_call_entry_point(void) { trilogy_init(); s3_army_init(); recomp_call_addr(0x000206u); }
+extern void tri_obj_vblank(void);
+static void s3k_call_vblank(void)      { s3_video_vblank(); s3_army_vblank(); recomp_call_addr(0x000584u); tri_obj_vblank(); }
 static void s3k_load_settings(const char *path) { s3_mods_load(path, "sonic3k"); }
 static void s3k_call_hblank(void)      { recomp_call_addr(0x000D0Cu); }
 
@@ -220,7 +229,7 @@ const GameSpec g_game_spec = {
     .state_at_boundary      = s3_state_at_boundary,
     .save_resume_pc         = s3_state_resume_pc,
     .video                  = &sonic3_video,
-    .instruction_hook       = s3_sk_instruction_hook,
+    .instruction_hook       = s3k_instruction,
     .main_cpu_divisor       = s3_sk_main_cpu_divisor,
     /* Seats 2-4 can take over the first Knuckles & Knuckles extras; seat 2
      * still drives native Tails in Sonic & Tails games. */
@@ -228,8 +237,10 @@ const GameSpec g_game_spec = {
     .load_settings          = s3k_load_settings,
     .mods                   = s3_mods,
     .netplay_allowed        = s3_mods_netplay_allowed,
-    .display_name           = "Sonic 3 & Knuckles v" S3_BUILD_VERSION,
+    .display_name           = "Sonic Trilogy",
     .short_name             = "Sonic3K",
+    .resolve_rom            = tri_resolve_rom,      /* sonic3k.bin + trilogy.bin, or TrilogyBuilder */
+    .keep_escape            = 1,                    /* (Escape doesn't quit) */
     .boxart                 = "boxart-sonic3k.tga",
 
     /* S&K+S3 World — skip CRC (combined ROM checksum is non-standard) */
@@ -260,7 +271,7 @@ const GameSpec g_game_spec = {
 
     .handle_arg             = NULL,
     .arg_usage              = NULL,
-    .dispatch_override      = NULL,
+    .dispatch_override      = trilogy_dispatch,
 
     .fill_frame_record      = s3k_fill_frame_record,
     .frame_record_version   = SONIC_GAME_DATA_VERSION,
