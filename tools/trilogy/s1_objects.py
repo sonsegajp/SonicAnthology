@@ -24,6 +24,12 @@ S1_MONITOR = {0: 0, 1: 2, 2: 1, 3: 4, 4: 7, 5: 8, 6: 3, 7: 3, 8: 3, 9: 3}
 MON_FIRE, MON_LIGHTNING, MON_BUBBLE = 5, 6, 7    # S3K monitor subtypes
 
 
+# Giant rings the trilogy adds: Sonic 1 has none in Scrap Brain, and every
+# act 1 and 2 gets one, past the signpost as S1 places its own ((zone, act): [(x, y)]).
+EXTRA_GIANT_RINGS = {(5, 0): [(0x22A8, 0x2F8)],          # SBZ1: sign $2260,$348
+                     (5, 1): [(0x1F28, 0x554)]}          # SBZ2: sign $1EE0,$5A4
+
+
 def elemental_shields(objs, seed):
     """S1/S2 have one shield; their shield monitors take S3K's three elements in
     turn along the act (fire, lightning, bubble, by x), each act starting the
@@ -661,6 +667,8 @@ class S1Objects:
             if oid == 0x4B:                       # giant ring: S3K collected-ring bit
                 sub = sum(1 for o in objs if o[2] == 0x4B)
             objs.append((x, (y | (flips << 13) | 0x8000), oid, sub))
+        for x, y in EXTRA_GIANT_RINGS.get((zone, act), []):
+            objs.append((x, y | 0x8000, 0x4B, sum(1 for o in objs if o[2] == 0x4B)))
         objs.sort(key=lambda o: o[0])
         objs = elemental_shields(objs, zone * 4 + act)
         rings.sort()

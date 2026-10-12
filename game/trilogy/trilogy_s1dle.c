@@ -246,6 +246,8 @@ static void dle_sbz(int act)
         w8(RAM_Disable_death_plane, px >= 0x2000);
         if (px >= 0x2000 && (int16_t)r16(RAM_Player_1 + OBJ_y_pos) > (int16_t)(r16(RAM_Camera_max_Y_pos) + 0xE0)
             && !r16(RAM_Restart_level_flag)) {
+            extern int tri_sbz2_fall(void);
+            if (tri_sbz2_fall()) return;              /* (its giant ring's special stage first) */
             w8(RAM_Last_star_post_hit, 0);
             w16(RAM_Restart_level_flag, 1);
             w16(RAM_Current_zone_and_act, 0x2103);

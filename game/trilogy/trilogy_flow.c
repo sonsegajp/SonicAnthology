@@ -9,6 +9,7 @@
 #include "trilogy_obj.h"
 #include "trilogy_assets_s2.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 /* (zone<<8|act) sequence of the Sonic 1 campaign.
  * S1 internals: SBZ act 3 is "LZ act 4", Final Zone is "SBZ act 3". */
@@ -47,6 +48,7 @@ uint16_t tri_apparent(uint16_t za);
 static int s_ss_pending;          /* tally running, special stage queued */
 static int s_ss_advance;          /* back from the special stage: next act */
 int tri_sbz2_open;                /* SBZ2 tally done: boundary opening (s1dle) */
+static int s_sbz2_ss;             /* SBZ2's giant ring entered: its stage before SBZ3 */
 
 static uint32_t find_obj(uint32_t code)
 {
@@ -118,7 +120,18 @@ static void ss_enter(uint16_t next)
 /* Level entry: back from a queued special stage, start the next act fresh */
 void tri_flow_level_entry(void)
 {
+    /* Each act has its own giant/big rings (subtypes from 0 per act): S3K
+     * clears Collected_special_ring_array only in its own act transitions, and
+     * the special stage's return restores it, so a new act clears it here;
+     * a restart in the same act (death, star post, back from the stage) keeps it. */
+    static uint16_t ring_za = 0xFFFF;
+    uint16_t za = r16(RAM_Current_zone_and_act);
+    if (za != ring_za) {                        /* (a save file's copy too: S3K only saves it cleared) */
+        w32(RAM_Collected_special_ring_array, 0);
+        ring_za = za;
+    }
     tri_sbz2_open = 0;
+    if (za != 0x2501) s_sbz2_ss = 0;
     w8(RAM_Disable_death_plane, 0);
     if (!s_ss_advance) return;
     s_ss_advance = 0;
@@ -182,13 +195,24 @@ static void sbz2_after_tally(void)
     fprintf(stderr, "[trilogy] SBZ2 tally done: on to Eggman\n");
 }
 
+/* SBZ2's floor gives way (trilogy_s1dle.c): with its giant ring entered, the
+ * special stage comes before SBZ3. Returns 1 if it took over. */
+int tri_sbz2_fall(void)
+{
+    if (!s_sbz2_ss) return 0;
+    s_sbz2_ss = 0;
+    ss_enter(0x2103);
+    return 1;
+}
+
 /* Results finished (loc_2DCE2): go to the next act as a fresh level. */
 static int results_done(void)
 {
     uint16_t za = r16(RAM_Current_zone_and_act);
     tri_ach_act_clear(za);
-    if (za == 0x2501) {
-        s_ss_pending = 0;                            /* (S1 skips the big-ring check here) */
+    if (za == 0x2501) {                          /* SBZ2: Eggman's scene first; a ring's stage */
+        s_sbz2_ss = s_ss_pending;                    /* waits for the fall into SBZ3 (tri_sbz2_fall) */
+        s_ss_pending = 0;
         sbz2_after_tally();
         o_delete(A(0) & 0xFFFFFF);
         return 1;
@@ -234,6 +258,9 @@ int tri_flow_hook(uint32_t pc)
             extern int tri_ss_stars_wanted(void);
             if (tri_rd8(tri_dir() + TD_GAME) == TRI_GAME_S2 && tri_ss_stars_wanted()) g_cpu.SR &= ~1u;
             else g_cpu.SR |= 1u;
+            if (getenv("TRILOGY_MOVELOG"))              /* development */
+                fprintf(stderr, "[STARS] game %d wanted %d SR %04X\n", tri_rd8(tri_dir() + TD_GAME),
+                        tri_ss_stars_wanted(), g_cpu.SR);
         }
         return 0;
     case TH_STARS_TOUCH:            /* the star circle: Sonic 2's special stage, not a bonus stage */
