@@ -14,6 +14,8 @@ transcribed from the original games' code.
 **No game data is included.** Sonic Trilogy is built on your PC from your own
 cartridge dumps by **TrilogyBuilder**.
 
+How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE_ZONES_GOT_IN.md).
+
 ## Playing
 
 1. Download the latest zip from [Releases](../../releases) and unpack it anywhere.

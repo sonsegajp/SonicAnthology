@@ -130,7 +130,7 @@ palette and has an underwater set (`trilogy_extpal.c`). The same mechanism
 covers plane tiles that need it, like the Casino Night slot reels.
 
 Palette cycles (Green Hill's waterfalls, Oil Ocean's oil, Wing Fortress's
-lights...) are converted from each game's cycle tables.
+fire and belts...) are converted from each game's cycle tables.
 
 ## Sound
 
@@ -196,8 +196,8 @@ Knuckles' burrow and wall spin dash, and modifiers. Each is unlocked in play.
   transcriptions.
 - About 6,000 lines of Python converters in `tools/trilogy/`.
 - About 100 hook sites into the unmodified cartridge.
-- 17 zones (6 from Sonic 1 plus its Final Zone, 11 from Sonic 2) beside S3K's
-  14.
+- 18 zones (Sonic 1's seven, Final Zone included, and Sonic 2's eleven) beside
+  S3K's 14.
 
 ## Reading the code
 
