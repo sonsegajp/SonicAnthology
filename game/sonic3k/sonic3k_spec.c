@@ -237,9 +237,9 @@ const GameSpec g_game_spec = {
     .load_settings          = s3k_load_settings,
     .mods                   = s3_mods,
     .netplay_allowed        = s3_mods_netplay_allowed,
-    .display_name           = "Sonic Trilogy",
+    .display_name           = "Sonic Anthology",
     .short_name             = "Sonic3K",
-    .resolve_rom            = tri_resolve_rom,      /* sonic3k.bin + trilogy.bin, or TrilogyBuilder */
+    .resolve_rom            = tri_resolve_rom,      /* sonic3k.bin + trilogy.bin, or AnthologyBuilder */
     .keep_escape            = 1,                    /* (Escape doesn't quit) */
     .boxart                 = "boxart-sonic3k.tga",
 

@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static TriObjFn s_s1[256], s_s2[256];
+static TriObjFn s_s1[256], s_s2[256], s_cd[NATIVE_CD_SLOTS];
 static int s_registered;
 
 static void obj_register(void)
@@ -17,21 +17,34 @@ static void obj_register(void)
     s_registered = 1;
     s1_objects_register(s_s1);
     s2_objects_register(s_s2);
+    extern void scd_objects_register(TriObjFn *table);
+    scd_objects_register(s_cd);
 }
 
 /* Dispatch a native object id. a0 = object; the caller's d7/a0 survive. */
 int tri_obj_dispatch(uint32_t addr)
 {
-    if (addr < NATIVE_S1_BASE || addr >= NATIVE_S2_BASE + 0x400u || (addr & 3))
+    if (addr < NATIVE_S1_BASE || addr >= NATIVE_CD_BASE + NATIVE_CD_SLOTS * 4u || (addr & 3))
+        return 0;
+    if (addr >= NATIVE_S2_BASE + 0x400u && addr < NATIVE_CD_BASE)
         return 0;
     obj_register();
     TriObjFn fn = NULL;
-    if (addr < NATIVE_S1_BASE + 0x400u)
+    if (addr >= NATIVE_CD_BASE)
+        fn = s_cd[(addr - NATIVE_CD_BASE) >> 2];
+    else if (addr < NATIVE_S1_BASE + 0x400u)
         fn = s_s1[(addr - NATIVE_S1_BASE) >> 2];
     else if (addr >= NATIVE_S2_BASE)
         fn = s_s2[(addr - NATIVE_S2_BASE) >> 2];
     uint32_t o = A(0) & 0xFFFFFF;
     uint32_t d7 = D(7), a0 = A(0);
+    static long trace = -2;                   /* development: TRILOGY_OBJTRACE=<native address, hex> */
+    if (trace == -2) trace = getenv("TRILOGY_OBJTRACE") ? strtol(getenv("TRILOGY_OBJTRACE"), NULL, 16) : -1;
+    if (trace >= 0 && addr == (uint32_t)trace)
+        fprintf(stderr, "[obj] f=%u o=%06X r=%02X x=%04X y=%04X fr=%02X anim=%02X rend=%02X st=%02X maps=%06X tile=%04X sub=%02X\n",
+                (unsigned)r16(RAM_Level_frame_counter), o, r8(o + OBJ_routine), r16(o + OBJ_x_pos), r16(o + OBJ_y_pos),
+                r8(o + OBJ_frame), r8(o + OBJ_anim), r8(o + OBJ_render), r8(o + OBJ_status), r32(o + OBJ_mappings),
+                r16(o + OBJ_art_tile), r8(o + OBJ_subtype));
     if (fn)
         fn(o);
     else
@@ -49,14 +62,15 @@ void o_draw(uint32_t o)   { with_a0(o); tri_jsr(S3K_Draw_Sprite); }
  * reloads a marked one; S2's marks only the objects its layout flags (y word
  * bit 15; s2_level.py carries it as bit 12), so an S2 object deleted with a plain DeleteObject - most of them,
  * leaving the screen - comes back when the camera returns. In an S2 zone an
- * unflagged layout object's mark is cleared as it goes. (Index: the respawn
- * byte's offset in Object_respawn_table = its entry from TD_OBJECTS.) */
+ * unflagged layout object's mark is cleared as it goes. Sonic CD's layout has
+ * the same flag (scd_level.py: bit 12 too). (Index: the respawn byte's offset
+ * in Object_respawn_table = its entry from TD_OBJECTS.) */
 #define RAM_Object_respawn_table 0xFFEB00u
 static void s2_unmark(uint32_t o)
 {
     uint16_t r = OB16(o, OBJ_respawn);
     uint32_t e = tri_dir();
-    if (!r || !e || tri_rd8(e + TD_GAME) != TRI_GAME_S2) return;
+    if (!r || !e || (tri_rd8(e + TD_GAME) != TRI_GAME_S2 && tri_rd8(e + TD_GAME) != TRI_GAME_CD)) return;
     uint32_t idx = (uint32_t)(r - (uint16_t)RAM_Object_respawn_table);
     if (idx >= 0x300) return;
     uint32_t lay = tri_rd32(e + TD_OBJECTS);
@@ -291,12 +305,22 @@ void o_platform(uint32_t o, int d1, int d3, int d4)
  * S2's effects also take ids in the driver's "continuous" range ($BC+): there
  * asking for the effect already playing would only extend it, but S2 restarts
  * them (one gloop per blue ball...), so the last continuous effect is forgotten
- * first (zContinuousSFX, Z80 $1C25) - except for the S3K ones that do loop. */
+ * first (zContinuousSFX, Z80 $1C25) - except for the S3K ones that do loop.
+ * The same in Sonic CD's set (its driver restarts every effect). Development:
+ * TRILOGY_SFXLOG=1 logs each request (the S3K id; the set; the Z80 pointer). */
 #define Z80_CONTINUOUS_SFX 0x1C25u
+#define Z80_SFX_PTRS       0x167Eu
 void o_sfx(int id)
 {
-    extern int tri_s2_sound_set_on(void);
-    if (id >= 0xBC && id != 0xBC && id != 0xC8 && tri_s2_sound_set_on())
+    static int log = -1;
+    if (log < 0) log = getenv("TRILOGY_SFXLOG") != NULL;
+    if (log && id >= 0x33 && id <= 0xDF) {
+        const uint8_t *z = g_machine.bus.z80_ram;
+        fprintf(stderr, "[sfx] f=%u $%02X %s ptr $%04X\n", (unsigned)r16(RAM_Level_frame_counter), id,
+                tri_scd_sound_set_on() ? "CD" : tri_sound_set_foreign() ? "S2" : "S3K",
+                (unsigned)(z[Z80_SFX_PTRS + (id - 0x33) * 2] | z[Z80_SFX_PTRS + (id - 0x33) * 2 + 1] << 8));
+    }
+    if (id >= 0xBC && id != 0xBC && id != 0xC8 && tri_sound_set_foreign())
         g_machine.bus.z80_ram[Z80_CONTINUOUS_SFX] = 0;
     D(0) = (uint32_t)id;
     tri_jsr(S3K_Play_SFX);
@@ -305,8 +329,26 @@ void o_sfx(int id)
 /* a Sonic 2 sound by its own id (SndID_*, $A0-$F0), from Sonic 2's objects */
 void o_sfx_s2(int sndid)
 {
-    extern int tri_s2_sfx_id(int sndid);
     int id = tri_s2_sfx_id(sndid);
+    if (id) o_sfx(id);
+}
+
+/* a Sonic CD FM sound by its own id ($90-$DF: _Sound IDs.i, FM_*), from Sonic
+ * CD's objects and scenes. In the CD set (scd_sfx.py) the id it plays at;
+ * without it (an scd.bin with no sound set, S3K's set in), S3K's own sound for
+ * the ones scd_sfx.py puts at S3K ids (S3K_TO_CD), else nothing */
+void o_sfx_cd(int fm)
+{
+    static const struct { uint8_t fm, s3k; } k_s3k[] = {
+        { 0x90, 0x36 }, { 0x91, 0xB6 }, { 0x92, 0x62 }, { 0x93, 0x35 }, { 0x94, 0xB9 }, { 0x95, 0x33 },
+        { 0x96, 0x3D }, { 0x97, 0x3A }, { 0x98, 0xB1 }, { 0x9A, 0xB0 }, { 0x9C, 0x3C }, { 0x9D, 0xB8 },
+        { 0x9E, 0xB4 }, { 0xA2, 0x39 }, { 0xA8, 0x34 }, { 0xAC, 0x6E }, { 0xAD, 0x38 }, { 0xAE, 0x63 },
+        { 0xAF, 0xB3 }, { 0xB6, 0x3B }, { 0xB7, 0x52 }, { 0xBD, 0x5B }, { 0xC8, 0xAF }, { 0xDF, 0xA9 },
+    };
+    int id = tri_scd_sound_set_on() ? tri_scd_sfx_id(fm) : 0;
+    if (!id && !tri_sound_set_foreign())
+        for (size_t k = 0; k < sizeof k_s3k / sizeof k_s3k[0]; k++)
+            if (k_s3k[k].fm == fm) id = k_s3k[k].s3k;
     if (id) o_sfx(id);
 }
 
@@ -516,12 +558,37 @@ static void upload_record(uint32_t r)
     }
 }
 
+/* Sonic CD: the window's art segments resident in the camera's section (as
+ * its LoadSectionArt / UpdateSectionArt swap object art by section). */
+static int s_cd_section = -1;
+static void upload_cd(void)
+{
+    extern uint32_t tri_scd_art_segments(void);
+    extern int tri_scd_section(void);
+    uint32_t seg = tri_scd_art_segments();
+    s_cd_section = tri_scd_section();
+    for (; seg && (tri_rd16(seg + 6) & 0x7FFF); seg += 12) {
+        if (!(tri_rd16(seg + 8) >> s_cd_section & 1)) continue;
+        uint32_t src = tri_rd32(seg), t0 = tri_rd16(seg + 4);
+        uint16_t cnt = tri_rd16(seg + 6), n = cnt & 0x7FFF;
+        if (!s_card_done && t0 + n > 0x500u && t0 < 0x580u)
+            continue;                                    /* (the card's own tiles keep their colours) */
+        tri_ext_tiles(t0, n, cnt >> 15);
+        for (uint32_t k = 0; k < n * 32u && t0 * 32u + k < 0x10000u; k++)
+            g_machine.vdp.vram[t0 * 32u + k] = tri_rd8(src + k);
+    }
+}
+
+/* (each frame: a new section, its art at the next VBlank) */
+static void cd_section_check(void);
+
 /* Regular assets first; boss art already brought in (it may reuse retired
  * badnik tiles) is re-applied last so it always wins. */
 static void upload_now(void)
 {
     uint32_t e = tri_dir();
     if (!e) return;
+    if (tri_cd_zone(tri_zone())) { upload_cd(); return; }
     uint32_t t = tri_rd32(e + TD_ANIM);
     if (!t) return;
     for (int pass = 0; pass < 2; pass++)
@@ -603,6 +670,13 @@ void tri_obj_titlecard_done(void)
     upload_now();
 }
 
+static void cd_section_check(void)
+{
+    extern int tri_scd_section(void);
+    if (tri_cd_zone(tri_zone()) && tri_dir() && s_cd_section >= 0 && tri_scd_section() != s_cd_section)
+        s_reupload = 1;
+}
+
 /* Development: TRILOGY_RINGS=n sets the ring count on the first gameplay
  * frame after a level load (testing giant rings / Super Sonic). */
 void tri_obj_frame(void)
@@ -610,8 +684,18 @@ void tri_obj_frame(void)
     static int done, god = -1;
     {   extern void tri_sound_set_for_zone(void); tri_sound_set_for_zone(); }   /* (kept through S3K's driver reloads) */
     {   extern void tri_audit_frame(void); tri_audit_frame(); }      /* (development: TRILOGY_AUDIT) */
+    cd_section_check();                                    /* (Sonic CD: object art by section) */
     if (god < 0) { const char *g = getenv("TRILOGY_GOD"); god = g && *g; }  /* development: Sonic can't be hurt */
     if (god) w8(RAM_Player_1 + 0x34, 0x1C);           /* (visible: bit 2 clear after the decrement) */
+    {                                                      /* development: TRILOGY_VRAMDUMP=n - VRAM to vram.bin */
+        static int at = -2;                                /* at level frame n */
+        if (at == -2) { const char *g = getenv("TRILOGY_VRAMDUMP"); at = g && *g ? atoi(g) : -1; }
+        if (at >= 0 && r16(RAM_Level_frame_counter) == (unsigned)at) {
+            FILE *f = fopen("vram.bin", "wb");
+            if (f) { fwrite(g_machine.vdp.vram, 1, 0x10000, f); fclose(f); }
+            at = -1;
+        }
+    }
     {   extern void s2_cnz_bumpers(void); if ((r8(RAM_Game_mode) & 0x7F) == 0x0C) s2_cnz_bumpers(); }   /* CNZ wall bumpers */
     {                                                      /* development: TRILOGY_TOUCHMAX - peak entries in S3K's */
         static int on = -1, mx;                            /* Collision_response_list ($FFE380, 63 max) per 600 frames */
@@ -644,6 +728,24 @@ void tri_obj_frame(void)
             extern void tri_ss_dev(int stage);
             tri_ss_dev(ss_dev);
             ss_dev = -1;
+        }
+    }
+    {
+        static int pos = -1;                               /* development: TRILOGY_POSLOG=n, Player 1 every n frames */
+        if (pos < 0) { const char *g = getenv("TRILOGY_POSLOG"); pos = g && *g ? atoi(g) : 0; }
+        if (pos > 0 && !(r16(RAM_Level_frame_counter) % pos))
+            fprintf(stderr, "[POS] f %u x %04X y %04X xv %04X yv %04X gv %04X st %02X rt %02X an %02X oc %02X iv %02X ang %02X ts %02X\n", r16(RAM_Level_frame_counter),
+                    r16(RAM_Player_1 + 0x10), r16(RAM_Player_1 + 0x14), r16(RAM_Player_1 + 0x18), r16(RAM_Player_1 + 0x1A),
+                    r16(RAM_Player_1 + 0x1C), r8(RAM_Player_1 + 0x2A), r8(RAM_Player_1 + 0x05), r8(RAM_Player_1 + 0x20), r8(RAM_Player_1 + 0x2E), r8(RAM_Player_1 + 0x34),
+                    r8(RAM_Player_1 + 0x26), r8(RAM_Player_1 + 0x46));
+    }
+    {
+        static int ufo_dev = -2;                           /* development: Sonic CD UFO stage n (1-7), five seconds in */
+        if (ufo_dev == -2) { const char *g = getenv("TRILOGY_SCDSS"); ufo_dev = g && *g ? atoi(g) - 1 : -1; }
+        if (ufo_dev >= 0 && r16(RAM_Level_frame_counter) >= 300) {
+            extern void tri_ss_dev_ufo(int stage);
+            tri_ss_dev_ufo(ufo_dev);
+            ufo_dev = -1;
         }
     }
     {
@@ -691,6 +793,14 @@ void tri_obj_frame(void)
                 uint32_t o = 0xFFB000u + s * OBJ_SIZE;
                 if (r32(o) == S3K_Obj_StarPost && OB8(o, OBJ_routine) == 8) { SET8(o, OBJ_coll_prop, 1); break; }
             }
+    }
+    {
+        static int kf = -2, kv;                            /* development: TRILOGY_KICK=frame:speed (hex), Player 1's ground speed then */
+        if (kf == -2) { const char *g = getenv("TRILOGY_KICK"); kf = g && sscanf(g, "%d:%x", &kf, &kv) == 2 ? kf : -1; }
+        if (kf >= 0 && r16(RAM_Level_frame_counter) == (unsigned)kf) {
+            SET16(RAM_Player_1, OBJ_ground_vel, (uint16_t)kv);
+            SET16(RAM_Player_1, OBJ_x_vel, (uint16_t)kv);
+        }
     }
     {
         static int pop = -1;                               /* development: a points popup every 20 frames */

@@ -45,7 +45,7 @@ def capture(exe_dir, za, tmp):
     script.write_text('\n'.join(lines) + '\n')
     env = dict(os.environ, SDL_AUDIODRIVER='dummy', TRILOGY_ZONE=f'{za:04X}', TRILOGY_GLIDE='2', TRILOGY_CHAR='2',
                LNG_SCRIPT='1', LNG_TEST_HIDDEN='1')       # (unseen, unheard)
-    exe = next((n for n in ('SonicTrilogy.exe', 'Sonic3KRecomp.exe') if (Path(exe_dir) / n).exists()), 'Sonic3KRecomp.exe')
+    exe = next((n for n in ('SonicAnthology.exe', 'SonicTrilogy.exe', 'Sonic3KRecomp.exe') if (Path(exe_dir) / n).exists()), 'Sonic3KRecomp.exe')
     subprocess.run([str(Path(exe_dir) / exe), '--no-launcher', '--turbo', '--input-script', str(script),
                     'sonic3k.bin'], cwd=exe_dir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=900,
                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))

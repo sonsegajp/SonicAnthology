@@ -78,9 +78,9 @@ void tri_player_frame(void)
         return;
     extern void tri_obj_frame(void);
     tri_obj_frame();
-    if (tri_rd8(e + TD_GAME) == TRI_GAME_S1) {
+    if (tri_rd8(e + TD_GAME) == TRI_GAME_S1 || tri_rd8(e + TD_GAME) == TRI_GAME_CD) {   /* (CD: Sonic 1's loops) */
         extern void s1_synchro_animate(void);
-        s1_synchro_animate();
+        if (tri_rd8(e + TD_GAME) == TRI_GAME_S1) s1_synchro_animate();
         uint32_t info = tri_rd32(e + TD_EXTRA);
         if (!info)
             return;

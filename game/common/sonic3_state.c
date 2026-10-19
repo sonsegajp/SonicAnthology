@@ -16,7 +16,7 @@ enum { LEVEL_LOOP = 0x650C, LEVEL_WAIT_RETURN = 0x6520, PAUSE_WAIT_RETURN = 0x14
 
 static void state(S3StateIO *io)
 {
-    unsigned version = 1;
+    unsigned version = 3;                /* 2: scene sprites carry a rotation; 3: and a picture */
     if (s3_state_peek_unsigned(io, version) != version) io->ok = 0;
     S3_STATE(io, version);
 #ifndef SONIC3_STANDALONE

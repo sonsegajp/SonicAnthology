@@ -288,10 +288,20 @@ static int file_select_layout(const GVDP *v)
  * ceiling, or 20-sprites-per-line ceiling. Native BuildSprites still executes
  * for the hardware pass and publishes a signature used to align our list
  * with the exact VBlank upload displayed by the VDP. */
-typedef struct { int x, y; uint16_t attr; uint8_t size, hud; } SceneSprite;
-enum { SCENE_SPRITES = 32768, SCENE_PLACEMENTS = 1024 };
+/* zoom: scaled about (rx,ry) too, in 256ths (0: none).
+ * rot: turn about (rx,ry), 1024 = full circle clockwise on screen (0 none).
+ * bank: 0 VRAM tiles, else the frame's own player art (SceneFrame.ptiles). */
+/* art: a game-supplied indexed picture drawn in place of tile pieces (its
+ * size is the piece size; attr carries palette line, priority and flips). */
+typedef struct { int x, y; uint16_t attr; uint8_t size, hud; uint16_t rot; uint8_t bank, slot; int16_t rx, ry; const S3VideoArt *art; uint16_t zoom; } SceneSprite;
+enum { SCENE_SPRITES = 32768, SCENE_PLACEMENTS = 1024, PLAYER_TILES = 64, SCENE_SLOTS = 112 };
 typedef struct {
     SceneSprite sprites[SCENE_SPRITES];
+    /* world position of each drawn object (slot = 1 + RAM index), for
+     * frame interpolation; code 0 = not drawn this frame */
+    int16_t ox[SCENE_SLOTS], oy[SCENE_SLOTS];
+    uint32_t ocode[SCENE_SLOTS];
+    uint8_t ptiles[2][PLAYER_TILES*32]; /* P1/P2 upright frames (smooth rotation) */
     unsigned count, serial;
     uint8_t sat[640];
     int scene; /* 1 level, 2 special, 0 menu */
@@ -304,8 +314,16 @@ static unsigned s_tick_samples,s_tick_updates,s_tick_lag,s_tick_multi;
 static unsigned s_publication_lag;
 static int s_tick_was_active;
 static unsigned s_tick_last,s_tick_zone,s_tick_serial;
+/* Newest publication a V-int could have uploaded (0 = unknown). Only a
+ * completed tick sets V_int_routine; VInt_0_Main (lag) leaves the SAT in
+ * VRAM alone. With CPU headroom the next tick often publishes before
+ * line 0 is drawn: when only the camera-tracked player is on screen its
+ * SAT bytes equal the displayed one, and choosing it drew the player a
+ * frame ahead of the planes. */
+static unsigned s_upload_serial;
 void s3_video_vblank(void)
 {
+    if(g_ram[0xF62A])s_upload_serial=s_serial;
     if(enabled())ss_capture();
     unsigned tick=ram16(0xFE04),zone=ram16(0xFE10);
     int active=enabled() && g_ram[0xF600]==12 && gameplay() &&
@@ -366,6 +384,137 @@ static void scene_mode_changed(int was_enabled)
     /* Once adopted, the host loader also maintains a native-width window
      * on opt-out until the next level init, preserving existing object state. */
 }
+/* Smooth rotation (opt-in), drawn as the Retro Engine does: a walking or
+ * running player is its upright frame turned by the whole ground angle, not
+ * one of S3K's 45-degree drawings (those would pop at every 45 degrees).
+ * Only the displayed frame is in VRAM, so the upright one is rebuilt from
+ * the cartridge art through its DPLC. The drawn angle eases toward the
+ * ground's, gliding over the steps between collision blocks (a loop is made
+ * of them); the faster the run, the closer it follows. */
+static int s_rotate;
+void s3_video_set_rotation(int on) { s_rotate = on != 0; }
+static int s_add_rot,s_add_bank,s_add_slot,s_add_zoom;
+/* A game's own size for an object (see s3_video_set_object_zoom). */
+static S3VideoObjectZoom s_object_zoom;
+void s3_video_set_object_zoom(S3VideoObjectZoom fn) { s_object_zoom = fn; }
+static float s_turn[2];
+static int s_turn_ok[2];
+/* A game's own player art (see s3_video_set_player_art). */
+static S3VideoPlayerArt s_player_art;
+void s3_video_set_player_art(S3VideoPlayerArt fn) { s_player_art = fn; }
+static const S3VideoArt *player_art(unsigned o,unsigned map,unsigned frame)
+{
+    return s_player_art && s_build.scene==1 ? s_player_art(o,map,frame&255u) : NULL;
+}
+/* the picture about the object's position (x, y), mirrored like its mapping */
+static void add_art(const S3VideoArt *art,unsigned gfx,unsigned flags,int x,int y)
+{
+    if(!art->w || !art->h || s_build.count>=SCENE_SPRITES)return;
+    int dx=(flags&1)?-art->ox-art->w:art->ox,dy=(flags&2)?-art->oy-art->h:art->oy;
+    SceneSprite *q=&s_build.sprites[s_build.count++];
+    q->x=x+dx;q->y=y+dy;q->attr=(uint16_t)((gfx&0xE000u)|((flags&1)?0x800u:0)|((flags&2)?0x1000u:0));
+    q->size=0;q->hud=0;q->rot=(uint16_t)s_add_rot;q->bank=0;q->slot=(uint8_t)s_add_slot;q->zoom=(uint16_t)s_add_zoom;
+    q->rx=(int16_t)x;q->ry=(int16_t)y;q->art=art;
+}
+static void add_mapping(unsigned map,unsigned frame,unsigned gfx,unsigned flags,
+                        int x,int y,int anchor,int static_mapping);
+#ifndef SONIC3_STANDALONE
+/* Sonic/Tails/Knuckles_Load_PLC2's tables (pinned S&K listing) */
+enum { S3_PLC_SONIC=0x148182, S3_PLC_SUPER=0x148378, S3_ART_SONIC=0x100000, S3_ART_SONIC_X=0x140060,
+       S3_PLC_TAILS=0x14A08A, S3_ART_TAILS=0x3200E0, S3_ART_TAILS_X=0x143D00,
+       S3_PLC_KNUX=0x14BD0A, S3_ART_KNUX=0x1200E0, S3_SUPER_FLAG=0xFE19 };
+/* the frame's tiles, in the order its Load_PLC2 would DMA them */
+static int player_tiles(unsigned o,unsigned frame,uint8_t *dst)
+{
+    unsigned ch=g_ram[o+0x38],plc,art;
+    if(ch==0){plc=g_ram[S3_SUPER_FLAG]?S3_PLC_SUPER:S3_PLC_SONIC;art=frame>=0xDA?S3_ART_SONIC_X:S3_ART_SONIC;}
+    else if(ch==1){plc=S3_PLC_TAILS;art=frame>=0xD1?S3_ART_TAILS_X:S3_ART_TAILS;}
+    else {plc=S3_PLC_KNUX;art=S3_ART_KNUX;}
+    unsigned p=plc+(unsigned)(int16_t)scene_read16(plc+frame*2u);
+    int entries=scene_read16(p),tiles=0;
+    p+=2;
+    if(entries>32)return 0;
+    for(int i=0;i<entries;++i,p+=2) {
+        unsigned e=scene_read16(p),src=art+(e&0xFFFu)*32u;
+        for(unsigned k=0;k<=(e>>12) && tiles<PLAYER_TILES;++k,++tiles)
+            for(unsigned b=0;b<32;++b)dst[tiles*32+b]=scene_read8(src+k*32+b);
+    }
+    return tiles;
+}
+#endif
+/* Player object o (slot 0 P1, 1 P2) turned while it walks or runs.
+ * -> 1 when its pieces were added here (upright art); otherwise s_add_rot
+ * holds the remainder turn for the displayed frame (0: upright). */
+static int player_turned(unsigned o,int slot,unsigned map,unsigned gfx,unsigned flags,int x,int y)
+{
+    s_add_rot=0;
+    /* Animate_Sonic/Tails/Knuckles use angle frames for anim scripts that
+     * begin $FF: walk (0) and run (1). Tumbling and pushing use others.
+     * A game's own art is always drawn upright and turned here: smoothly,
+     * or (rotation off) by the cartridge's own 45-degree steps. */
+    const S3VideoArt *mine=player_art(o,map,g_ram[o+0x22]);
+    int own=mine!=NULL;
+    if(mine && mine->upright) {                              /* (drawn for its angle already) */
+        s_turn_ok[slot]=0;
+        add_art(mine,gfx,(flags&~3u)|(g_ram[o+0x2A]&1u),x,y);
+        return 1;
+    }
+    if((!s_rotate && !own) || g_ram[o+0x20]>1 || g_ram[o+0x27] || (int8_t)g_ram[o+0x2D]<0 ||
+       (g_ram[o+0x2A]&0x20) || g_ram[o+0x38]>2){s_turn_ok[slot]=0;return 0;}
+    int a=g_ram[o+0x26];
+    if(a>0 && a<128)--a;
+    int left=g_ram[o+0x2A]&1;
+#ifndef SONIC3_STANDALONE
+    {
+        /* The frame set Animate chose: the sector after its facing mirror,
+         * times the script's stride per set (walk 4, run 2, Tails' top 1). */
+        int set=(((left?a:(~a&255))+0x10)&255)>>4&6;
+        unsigned spd=(unsigned)abs((int16_t)ram16(o+0x1C));
+        if((int8_t)g_ram[o+0x2B]<0)spd*=2;
+        int ch=g_ram[o+0x38],stride;
+        if(ch==1)stride=spd<0x600?4:spd<0x700?2:1;
+        else stride=spd<(ch==0 && g_ram[S3_SUPER_FLAG]?0x800u:0x600u)?4:2;
+        int upright=(int)g_ram[o+0x22]-set*stride;
+        const S3VideoArt *art=upright>=0?player_art(o,map,(unsigned)upright):NULL;
+        if(!s_rotate) {                                      /* (the cartridge's 45-degree sets) */
+            if(!art){s_turn_ok[slot]=0;return 0;}
+            s_add_rot=((a+16)&0xE0)*4&1023;
+            add_art(art,gfx,(flags&~3u)|(unsigned)left,x,y);
+            s_add_rot=0;
+            return 1;
+        }
+        if(upright>=0 && (art || player_tiles(o,(unsigned)upright,s_build.ptiles[slot])>0)) {
+            int sa=(int8_t)(uint8_t)a;
+            float target=sa>=-2 && sa<=2?0.f:(float)a;      /* level-ish ground stays upright */
+            if(!s_turn_ok[slot])s_turn[slot]=target;
+            float d=target-s_turn[slot];
+            while(d>=128)d-=256;
+            while(d<-128)d+=256;
+            float k=.5f+(float)spd/(float)0x1800;
+            s_turn[slot]+=d*(k>1?1:k);
+            if(s_turn[slot]<0)s_turn[slot]+=256;
+            if(s_turn[slot]>=256)s_turn[slot]-=256;
+            s_turn_ok[slot]=1;
+            s_add_rot=(int)(s_turn[slot]*4+.5f)&1023;
+            if(art)add_art(art,gfx,(flags&~3u)|(unsigned)left,x,y);
+            else {
+                s_add_bank=slot+1;
+                add_mapping(map,(unsigned)upright,gfx&0xE000u,(flags&~3u)|(unsigned)left,x,y,0,0);
+            }
+            s_add_rot=s_add_bank=0;
+            return 1;
+        }
+    }
+#endif
+    s_turn_ok[slot]=0;
+    /* Near-level ground stays upright: tiny bumps would only wobble. */
+    if((int8_t)(uint8_t)a>=-4 && (int8_t)(uint8_t)a<=4)return 0;
+    /* The frame set shows the 32-unit sector chosen after the facing
+     * mirror (not.b when facing right); the remainder is the rest. */
+    int q=left?((a+16)&0xE0):(-((15-a)&0xE0));
+    s_add_rot=((int8_t)(uint8_t)(a-q)*4)&1023;
+    return 0;
+}
 static void add_mapping(unsigned map,unsigned frame,unsigned gfx,unsigned flags,
                         int x,int y,int anchor,int static_mapping)
 {
@@ -381,9 +530,11 @@ static void add_mapping(unsigned map,unsigned frame,unsigned gfx,unsigned flags,
         uint16_t attr=(uint16_t)(scene_read16(p+2)+gfx);
         if(flags&1){dx=-dx-(((size>>2)&3)+1)*8;attr^=0x800;}
         if(flags&2){dy=-dy-((size&3)+1)*8;attr^=0x1000;}
-        if(y+dy>=224 || y+dy+((size&3)+1)*8<=0)continue;
+        if(!s_add_rot && (y+dy>=224 || y+dy+((size&3)+1)*8<=0))continue;
         SceneSprite *q=&s_build.sprites[s_build.count++];
         q->x=x+dx;q->y=y+dy;q->attr=attr;q->size=(uint8_t)size;q->hud=(uint8_t)anchor;
+        q->rot=(uint16_t)s_add_rot;q->bank=(uint8_t)s_add_bank;q->slot=(uint8_t)s_add_slot;q->zoom=(uint16_t)s_add_zoom;
+        q->rx=(int16_t)x;q->ry=(int16_t)y;q->art=NULL;
     }
 }
 
@@ -465,6 +616,10 @@ static void spawn_scene(void)
 }
 static S3VideoRingLayout s_ring_layout;
 void s3_video_set_ring_layout(S3VideoRingLayout fn) { s_ring_layout = fn; }
+static S3VideoGround s_file_select_ground;
+static uint32_t *s_fs_expect,*s_fs_repl;   /* per column: the planes' native colour, and its stand-in */
+static int s_fs_capacity;
+void s3_video_set_file_select_ground(S3VideoGround fn) { s_file_select_ground = fn; }
 static unsigned rings_base(void)
 {
     unsigned own=s_ring_layout?s_ring_layout():0;
@@ -483,6 +638,7 @@ static unsigned rings_end(void)
 static void capture_objects(void)
 {
     s_build.count=0;s_visible_count=0;++s_scene_tick;
+    memset(s_build.ocode,0,sizeof s_build.ocode);
     s_build.scene=level_ready()?1:0;
     int cam=ram16(0xEE80),cy=ram16(0xEE84);
     s_build.camera_x=cam;s_build.camera_y=cy;
@@ -504,7 +660,7 @@ static void capture_objects(void)
             if(s_build.count<SCENE_SPRITES) {
                 SceneSprite *q=&s_build.sprites[s_build.count++];
                 q->x=x-cam+(int16_t)scene_read16(m+6);q->y=y+(int16_t)scene_read16(m);
-                q->attr=scene_read16(m+4);q->size=(uint8_t)scene_read16(m+2);q->hud=0;
+                q->attr=scene_read16(m+4);q->size=(uint8_t)scene_read16(m+2);q->hud=0;q->rot=0;q->bank=0;q->slot=0;q->art=NULL;q->zoom=0;
             }
         }
     }
@@ -528,6 +684,17 @@ static void capture_objects(void)
             /* Data Select queues every card, including those culled by the
              * native SAT builder. Preserve their signed carousel positions. */
             if(map==S3_FILE_SELECT_MAP)anchor=4;
+            s_add_rot=0;
+            s_add_slot=0;
+            s_add_zoom=(flags&4) && s_object_zoom && s_build.scene==1 ? (int)s_object_zoom(o) : 0;
+            if((flags&4) && (o-0xB000u)/0x4Au+1<SCENE_SLOTS) {   /* (a world object: interpolation can follow it) */
+                unsigned k=(o-0xB000u)/0x4Au+1;
+                s_add_slot=(int)k;
+                s_build.ox[k]=(int16_t)ram16(o+0x10);s_build.oy[k]=(int16_t)ram16(o+0x14);
+                s_build.ocode[k]=scene_read32(0xFF0000u+o);
+            }
+            if((flags&4) && !multi && (o==0xB000 || o==0xB04A) && s_build.scene==1 &&
+               player_turned(o,o!=0xB000,map,gfx,flags,x,y)){s_add_zoom=0;continue;}
             if(multi) {
                 if(g_ram[o+0x22])add_mapping(map,g_ram[o+0x22],gfx,flags,x,y,anchor,0);
                 unsigned count=ram16(o+0x16);if(count>8)count=8;
@@ -537,7 +704,12 @@ static void capture_objects(void)
                     if(flags&4){sx=(int16_t)(ram16(child)-cam);sy=((ram16(child+2)-cy+128)&mask)-128;}
                     add_mapping(map,g_ram[child+5],gfx,flags,sx,sy,anchor,0);
                 }
-            } else add_mapping(map,g_ram[o+0x22],gfx,flags,x,y,anchor,(flags&32)!=0);
+            } else {
+                const S3VideoArt *art=(flags&4)?player_art(o,map,g_ram[o+0x22]):NULL;
+                if(art)add_art(art,gfx,flags,x,y);
+                else add_mapping(map,g_ram[o+0x22],gfx,flags,x,y,anchor,(flags&32)!=0);
+            }
+            s_add_rot=0;s_add_slot=0;s_add_zoom=0;
         }
     }
 }
@@ -553,6 +725,9 @@ static void publish_sprites(void)
     dst->camera_x=s_build.camera_x;dst->camera_y=s_build.camera_y;
     memcpy(dst->sat,s_build.sat,640);
     memcpy(dst->sprites,s_build.sprites,s_build.count*sizeof(SceneSprite));
+    memcpy(dst->ptiles,s_build.ptiles,sizeof dst->ptiles);
+    memcpy(dst->ox,s_build.ox,sizeof dst->ox);memcpy(dst->oy,s_build.oy,sizeof dst->oy);
+    memcpy(dst->ocode,s_build.ocode,sizeof dst->ocode);
 }
 int s3_video_hook(uint32_t pc)
 {
@@ -587,6 +762,33 @@ int s3_video_hook(uint32_t pc)
 
 static uint8_t *s_priority;
 static int s_priority_capacity;
+/* Frame interpolation (opt-in; the runner presents in-between frames on a
+ * high-refresh display). Each real frame records what its scanlines used:
+ * per-line scroll and CRAM, the native rows, and every object's world
+ * position. An in-between frame re-renders the latest frame's art with the
+ * camera, background parallax and each object (matched by RAM slot and code)
+ * eased from the previous frame's values. Jumps (scene changes, teleports)
+ * snap to the latest frame instead. Guest state is never touched. */
+enum { IX_LINES = 240, IX_NATIVE = 320 };
+typedef struct {
+    int16_t hs_a[IX_LINES], hs_b[IX_LINES];
+    uint16_t vs_a, vs_b;
+    uint16_t cram[IX_LINES][64];
+    int16_t ox[SCENE_SLOTS], oy[SCENE_SLOTS];
+    uint32_t ocode[SCENE_SLOTS], serial;
+    int lines, width;
+} IxFrame;
+static IxFrame s_ix[2];                   /* [0] previous frame, [1] latest */
+static uint32_t s_ix_native[IX_LINES][IX_NATIVE];
+static int s_ix_nw, s_interp;
+static float s_ix_t;
+int s3_video_interpolating(void) { return s_interp; }
+static int ix_lerp(int a, int b, int limit)   /* a -> b at s_ix_t; a jump snaps to b */
+{
+    int d=(int16_t)(uint16_t)(b-a);
+    if(d>limit || d<-limit)return b;
+    return b-d+(int)((float)d*s_ix_t+(d<0?-.5f:.5f));
+}
 static S3VideoActorOverlay s_actor_overlay;
 void s3_video_set_actor_overlay(S3VideoActorOverlay draw) { s_actor_overlay=draw; }
 static void select_scene(const GVDP *v)
@@ -594,10 +796,14 @@ static void select_scene(const GVDP *v)
     s_display=NULL;
     unsigned sat=(v->reg[5]&127u)<<9;
     /* Keep the front buffer's publication alive even if the producer cycles
-     * through every history slot before the next native sprite DMA. */
+     * through every history slot before the next native sprite DMA.
+     * A publication newer than the last V-int upload cannot be on screen;
+     * the unbounded pass covers SAT writes made outside V-int (loading). */
+    for(int bounded=s_upload_serial!=0;bounded>=0 && !s_display;--bounded)
     for(unsigned n=0;n<4;++n) {
         const SceneFrame *p=n==3?&s_display_frame:&s_history[n];
         if(!p->serial || (s_display && p->serial<s_display->serial))continue;
+        if(bounded && p->serial>s_upload_serial)continue;
         int matches=1;
         for(unsigned k=0;k<640;++k)
             if(p->sat[k]!=v->vram[(sat+k)&65535u]) {matches=0;break;}
@@ -620,8 +826,42 @@ static void select_scene(const GVDP *v)
         s_display_frame.camera_x=s_display->camera_x;s_display_frame.camera_y=s_display->camera_y;
         memcpy(s_display_frame.sat,s_display->sat,sizeof s_display_frame.sat);
         memcpy(s_display_frame.sprites,s_display->sprites,s_display->count*sizeof(SceneSprite));
+        memcpy(s_display_frame.ptiles,s_display->ptiles,sizeof s_display_frame.ptiles);
+        memcpy(s_display_frame.ox,s_display->ox,sizeof s_display_frame.ox);
+        memcpy(s_display_frame.oy,s_display->oy,sizeof s_display_frame.oy);
+        memcpy(s_display_frame.ocode,s_display->ocode,sizeof s_display_frame.ocode);
         s_display=&s_display_frame;
     }
+}
+/* A coloured picture's pixel (ix/iy already flipped) -> 1 and its colour */
+static inline int art_colour(const S3VideoArt *a,int ix,int iy,const uint32_t *palette,uint32_t *out)
+{
+    if(ix<0 || iy<0 || ix>=a->w || iy>=a->h)return 0;
+    unsigned v=a->pix[iy*a->w+ix];
+    if(!v || v>a->ncol)return 0;
+    const uint8_t *e=a->col+(v-1)*6u;
+    uint32_t now=palette[e[3]&63],own=genesis_dac_cram_to_argb((uint16_t)(e[4]|e[5]<<8),GENESIS_DAC_NORMAL);
+    int r=e[0]+(int)((now>>16)&255)-(int)((own>>16)&255);
+    int g=e[1]+(int)((now>>8)&255)-(int)((own>>8)&255);
+    int b=e[2]+(int)(now&255)-(int)(own&255);
+    r=r<0?0:r>255?255:r;g=g<0?0:g>255?255:g;b=b<0?0:b>255?255:b;
+    *out=0xFF000000u|(uint32_t)r<<16|(uint32_t)g<<8|(uint32_t)b;
+    return 1;
+}
+/* A piece's pixel (cell without flip bits; ix/iy already flipped). */
+static inline uint8_t sprite_pixel(const GVDP *v,const SceneSprite *s,uint16_t cell,int ix,int iy)
+{
+    if(s->art) {
+        if(ix<0 || iy<0 || ix>=s->art->w || iy>=s->art->h)return 0;
+        uint8_t v=s->art->pix[iy*s->art->w+ix]&63;
+        return v>15?v:v?(uint8_t)(((s->attr>>9)&48)|v):0;
+    }
+    if(!s->bank)return pattern_pixel(v,cell,ix,iy);
+    unsigned t=cell&2047u;
+    if(t>=PLAYER_TILES)return 0;
+    uint8_t b=s_display->ptiles[s->bank-1][t*32u+(unsigned)(iy&7)*4u+(unsigned)(ix&7)/2u];
+    int nib=(ix&1)?b&15:b>>4;
+    return nib?(uint8_t)(((cell>>9)&48)|nib):0;
 }
 static void draw_scene_sprites(const GVDP *v,int line,uint32_t *out,int width,
                                int origin,const uint32_t *palette)
@@ -632,28 +872,96 @@ static void draw_scene_sprites(const GVDP *v,int line,uint32_t *out,int width,
         int menu=s_display->scene==0;
         if(menu && s->hud!=(file_select_layout(v)?4:3))continue;
         int cw=((s->size>>2)&3)+1,ch=(s->size&3)+1;
+        int pw=s->art?s->art->w:cw*8,ph=s->art?s->art->h:ch*8;
         int world=!s->hud && s_display->scene==1;
         int y=s->y+(world?s_display->camera_y-s_camera_y:0);
-        if(line<y || line>=y+ch*8)continue;
+        if(!s->rot && !s->zoom && !s_interp && (line<y || line>=y+ph))continue;
         int base=s->x+(s->hud==1?0:s->hud>=2?(width-320)/2:origin);
         /* Native camera scroll may advance while a completed host frame is
          * retained. Reproject its world coordinates, not its old screen
          * coordinates; otherwise stationary rings jitter with the camera. */
         if(world)base+=s_display->camera_x-s_camera;
+        if(s_interp && world && s->slot && s_ix[0].ocode[s->slot]==s_display->ocode[s->slot] &&
+           s_display->ocode[s->slot]) {
+            int cx=s_display->ox[s->slot],cy=s_display->oy[s->slot];
+            int dx=ix_lerp(s_ix[0].ox[s->slot],cx,48)-cx,dy=ix_lerp(s_ix[0].oy[s->slot],cy,48)-cy;
+            base+=dx;y+=dy;
+        }
+        if(s_interp && !s->rot && !s->zoom && (line<y || line>=y+ph))continue;
+        if(s->rot || s->zoom) {
+            /* Nearest-neighbour turn of this piece about the object's
+             * centre: map each output pixel back into the upright piece. */
+            static float sn[1024],cs[1024];static int ready;
+            if(!ready){for(int k=0;k<1024;++k){sn[k]=(float)sin(k*6.2831853/1024);cs[k]=(float)cos(k*6.2831853/1024);}ready=1;}
+            float c=cs[s->rot&1023],si=sn[s->rot&1023],zf=s->zoom?(float)s->zoom/256.f:1.f;
+            float cx=(float)(s->rx+(base-s->x)),cy=(float)(s->ry+(y-s->y));
+            float w=(float)pw,h=(float)ph,dy=(float)line+.5f-cy;
+            float lo=1e9f,hi=-1e9f,ylo=1e9f,yhi=-1e9f;
+            for(int k=0;k<4;++k) {
+                float px=(float)base+((k&1)?w:0)-cx,py=(float)y+((k&2)?h:0)-cy;
+                float ry=(px*si+py*c)*zf;
+                if(ry<ylo)ylo=ry;
+                if(ry>yhi)yhi=ry;
+            }
+            if(dy<ylo || dy>yhi)continue;
+            /* the piece's span on this line, from its four edges */
+            for(int k=0;k<4;++k) {
+                float px=(float)base+((k&1)?w:0)-cx,py=(float)y+((k&2)?h:0)-cy;
+                float rx=(px*c-py*si)*zf;
+                if(rx<lo)lo=rx;
+                if(rx>hi)hi=rx;
+            }
+            int x0=(int)floorf(cx+lo),x1=(int)ceilf(cx+hi);
+            if(x0<0)x0=0;
+            if(x1>width)x1=width;
+            for(int x=x0;x<x1;++x) {
+                if(s_priority[x]&2)continue;
+                if(menu && x>=origin && x<origin+320)continue;
+                float dx=(float)x+.5f-cx;
+                float ux=(dx*c+dy*si)/zf+cx-(float)base,uy=(-dx*si+dy*c)/zf+cy-(float)y;
+                if(ux<0 || uy<0 || ux>=w || uy>=h)continue;
+                int ix=(int)ux,jy=(int)uy;
+                if(s->attr&0x1000)jy=ph-1-jy;
+                if(s->attr&0x800)ix=pw-1-ix;
+                if(s->art && s->art->ncol) {
+                    uint32_t col;
+                    if(!art_colour(s->art,ix,jy,palette,&col))continue;
+                    s_priority[x]|=2;
+                    if((s->attr&0x8000) || !(s_priority[x]&1))out[x]=col;
+                    continue;
+                }
+                uint16_t cell=(uint16_t)((s->attr&0xE000u)|
+                    (((s->attr&2047u)+(unsigned)(ix/8*ch+jy/8))&2047u));
+                uint8_t p=sprite_pixel(v,s,cell,ix,jy);
+                if(!p)continue;
+                s_priority[x]|=2;
+                int ext=p<16 && !s->bank && !s->art?gvdp_ext_line(cell&2047u):0;
+                uint32_t col=ext?genesis_dac_cram_to_argb(gvdp_ext_color(line,ext,p),GENESIS_DAC_NORMAL):palette[p];
+                if(s->hud==1 || s->hud==2 || (s->attr&0x8000) || !(s_priority[x]&1))out[x]=col;
+            }
+            continue;
+        }
         int iy=line-y;
-        if(s->attr&0x1000)iy=ch*8-1-iy;
-        for(int i=0;i<cw*8;++i) {
+        if(s->attr&0x1000)iy=ph-1-iy;
+        for(int i=0;i<pw;++i) {
             int x=base+i;
             if(x<0 || x>=width || (s_priority[x]&2))continue;
             if(menu && x>=origin && x<origin+320)continue;
-            int ix=(s->attr&0x800)?cw*8-1-i:i;
+            int ix=(s->attr&0x800)?pw-1-i:i;
+            if(s->art && s->art->ncol) {
+                uint32_t col;
+                if(!art_colour(s->art,ix,iy,palette,&col))continue;
+                s_priority[x]|=2;
+                if((s->attr&0x8000) || !(s_priority[x]&1))out[x]=col;
+                continue;
+            }
             uint16_t cell=(uint16_t)((s->attr&0xE000u)|
                 (((s->attr&2047u)+(unsigned)(ix/8*ch+iy/8))&2047u));
-            uint8_t p=pattern_pixel(v,cell,ix,iy);
+            uint8_t p=sprite_pixel(v,s,cell,ix,iy);
             if(!p)continue;
             s_priority[x]|=2;
             /* extended sprite lines (game-added art keeping its own colours) */
-            int ext=p<16?gvdp_ext_line(cell&2047u):0;
+            int ext=p<16 && !s->bank && !s->art?gvdp_ext_line(cell&2047u):0;
             uint32_t c=ext?genesis_dac_cram_to_argb(gvdp_ext_color(line,ext,p),GENESIS_DAC_NORMAL):palette[p];
             if(s->hud==1 || s->hud==2 || (s->attr&0x8000) || !(s_priority[x]&1))out[x]=c;
         }
@@ -684,156 +992,25 @@ static void aiz_palette(const AizArt *art,const GVDP *v,uint32_t *out)
     }
 }
 
-/* Background blur (trilogy option): plane B and the backdrop are softened
- * behind the level, before the sprites go on. A box across the line and a
- * running blend down the screen; the level's own plane stays sharp. */
-static int s_bg_blur;
-void s3_video_set_bg_blur(int level) { s_bg_blur = level < 0 ? 0 : level > 3 ? 3 : level; }
-static uint32_t *s_blur_line;
-static uint8_t *s_blur_mask;
-static uint32_t (*s_blur_acc)[3];
-static int s_blur_cap, s_blur_first;
-static int blur_buffers(int width, int line)
-{
-    if(width>s_blur_cap) {
-        uint32_t *l=(uint32_t *)realloc(s_blur_line,(size_t)width*sizeof *l);
-        if(l)s_blur_line=l;
-        uint8_t *m=(uint8_t *)realloc(s_blur_mask,(size_t)width);
-        if(m)s_blur_mask=m;
-        uint32_t (*a)[3]=(uint32_t (*)[3])realloc(s_blur_acc,(size_t)width*sizeof *a);
-        if(a)s_blur_acc=a;
-        if(!l || !m || !a)return 0;
-        s_blur_cap=width;
-        s_blur_first=1;
-    }
-    if(line==0)s_blur_first=1;
-    return 1;
-}
-static void blur_background(uint32_t *out, int width)
-{
-    static const int radius[4]={0,1,1,2}, carry[4]={0,48,96,128};   /* LOW, MEDIUM, HIGH */
-    int r=radius[s_bg_blur], keep=carry[s_bg_blur];          /* box radius; share of the line above (/256) */
-    uint32_t sum[3]={0,0,0};
-    int n=0;
-    for(int x=-r;x<width+r;++x) {
-        if(x+r<width && x+r>=0){uint32_t c=s_blur_line[x+r];sum[0]+=(c>>16)&255;sum[1]+=(c>>8)&255;sum[2]+=c&255;++n;}
-        if(x-r-1>=0 && x-r-1<width){uint32_t c=s_blur_line[x-r-1];sum[0]-=(c>>16)&255;sum[1]-=(c>>8)&255;sum[2]-=c&255;--n;}
-        if(x<0 || x>=width || n<=0)continue;
-        for(int k=0;k<3;++k) {
-            uint32_t h=(sum[k]<<8)/(uint32_t)n;              /* 8.8 */
-            s_blur_acc[x][k]=s_blur_first?h:(s_blur_acc[x][k]*(uint32_t)keep+h*(uint32_t)(256-keep))>>8;
-        }
-        if(s_blur_mask[x])
-            out[x]=(out[x]&0xFF000000u)|((s_blur_acc[x][0]>>8)<<16)|((s_blur_acc[x][1]>>8)<<8)|(s_blur_acc[x][2]>>8);
-    }
-    s_blur_first=0;
-}
 
-static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
-                     uint32_t *out, int width)
+/* Plane B for one line, sampled identically by the composite and by the
+ * background blur's look-ahead (lines below the beam, from the frame's
+ * latched VDP snapshot). Frame-wide flags come from the line-0 copies. */
+typedef struct {
+    int level,special,file_select,bg_world,bg_canvas,aiz_fire,aiz_banks;
+    int origin,nw,hs_b,by,bg_width;
+    unsigned base_b;
+} BgLine;
+static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_select,
+                          int origin,int nw,BgLine *L)
 {
-    /* Publish one immutable art/scroll snapshot per frame. Palettes stay
-     * live so water-line HBlank colour changes are retained. */
-    uint32_t palette[64],shadow[64],intro_palette[64],forest_palette[64];
-    int uniform_palette=1;
-    for(int i=0;i<64;++i) {
-        palette[i]=genesis_dac_cram_to_argb(v->cram[i],GENESIS_DAC_NORMAL);
-        shadow[i]=genesis_dac_cram_to_argb(v->cram[i],GENESIS_DAC_SHADOW);
-        if(palette[i]!=palette[0])uniform_palette=0;
-    }
-    if(line==0) {
-        memcpy(&s_video_frame,v,sizeof s_video_frame);
-        memcpy(s_world_frame,g_ram,sizeof s_world_frame);
-        /* HUD visibility is not level readiness: AIZ hides it for the whole
-         * landing/emerald cutscene while displaying the real stage planes. */
-        s_frame_level=level_ready();
-        /* The native special-stage exit changes mode before its 60-frame
-         * fade. Keep the globe until its shadow/highlight video mode ends. */
-        s_frame_special=(g_ram[0xF600]&127)==0x34 ||
-            (s_frame_special && (v->reg[12]&8) && (v->reg[1]&64));
-        if(s_frame_special)ss_begin(v,width);
-        s_frame_zone=g_ram[0xFE10];
-        s_frame_act=g_ram[0xFE11];s_frame_bg_event=ram16(0xEEC2);
-        s_frame_tree_reveal=ram16(0xEEC4);
-        if(s_frame_level && !s_frame_zone && !s_frame_act)load_aiz_art();
-        /* The intro queues the main-level block definitions before its
-         * two-row-at-a-time name-table refresh. Keep the outgoing background
-         * definitions intact while Kosinski is overwriting their RAM. */
-        int replacing_intro=s_frame_level && s_frame_zone==0 && s_frame_act==0 &&
-            s_frame_bg_event==0 && ram16(0xEEC6);
-        if(!replacing_intro)memcpy(s_background_frame,s_world_frame,sizeof s_background_frame);
-        s_frame_fg_x=ram16(0xEE80);s_frame_fg_y=ram16(0xEE84);s_frame_bg_y=ram16(0xEE90);
-        s_frame_bg_band[0]=(int16_t)ram16(0xA800);
-        s_frame_bg_band[1]=(int16_t)ram16(0xA804);
-        s_width=width;s_requested_width=width;
-        s_terrain_checks=s_terrain_errors=s_bg_checks=s_bg_errors=s_bg_unstreamed=0;
-        s_uninitialized_scroll_lines=s_terrain_unstreamed=0;
-        s_bad_x=s_bad_y=-1;s_bad_attr=s_bad_expected=0;
-        s_bg_bad_x=s_bg_bad_y=-1;s_bg_bad_a=s_bg_bad_expected=0;
-        if(width>s_priority_capacity) {
-            uint8_t *p=(uint8_t *)realloc(s_priority,(size_t)width);
-            if(p){s_priority=p;s_priority_capacity=width;}
-        }
-        select_scene(v);
-    }
-    v=&s_video_frame;
-    uint32_t backdrop=palette[v->reg[7]&63];
-    /* During a completed fade the game can clear/reload name tables before
-     * retiring its old player/display list. A flat palette displays no stage
-     * geometry and is not a valid tile-streaming comparison. Keep the full
-     * canvas flat; never expose in-progress stage decompression. */
-    if(uniform_palette && !(v->reg[12]&8)) {
-        for(int x=0;x<width;++x)out[x]=palette[0];
-        if(line==0){++s_frames;s_native_x=(width-nw)/2;}
-        return;
-    }
-    /* Display-off/fades fill the same full-width canvas, not black sidebars.
-     * A rare unsupported mode also retains the selected output dimensions. */
-    if((nw!=320 && nw!=256) || !(v->reg[1]&64) || (v->reg[12]&6) ||
-       ((v->reg[12]&8) && !s_frame_special) || s_priority_capacity<width) {
-        uint32_t fill=!(v->reg[1]&64)?native[0]:backdrop;
-        for(int x=0;x<width;++x)out[x]=fill;
-        int x0=(width-nw)/2;
-        if(x0>=0)memcpy(out+x0,native,(size_t)nw*sizeof(uint32_t));
-        if(line==0){++s_fallbacks;s_native_x=x0;}
-        return;
-    }
+    int bg_world=level && !special;
+    L->level=level;L->special=special;L->file_select=file_select;L->origin=origin;L->nw=nw;
+    L->base_b=(v->reg[4]&7u)<<13;
     unsigned hsbase=(v->reg[13]&63u)<<10;
     int hmode=v->reg[11]&3,hi=hmode==0?0:hmode==2?line&~7:line;
-    int hs_a=(int16_t)vram16(v,hsbase+(unsigned)hi*4);
     int hs_b=(int16_t)vram16(v,hsbase+(unsigned)hi*4+2);
-    if(s_frame_special && ss_ready) {
-        if(line==0){++s_frames;s_native_x=(width-nw)/2;}
-        ss_scanline(v,line,out,width,palette,shadow,hs_b);
-        return;
-    }
-    int level=s_frame_level,special=s_frame_special;
-    /* The next player object can exist while the title-card SAT is still
-     * displayed. Do not expose the incoming level before its own display
-     * list/planes reach VBlank. */
-    if(s_display && s_display->scene!=1)level=0;
-    int missing_scroll=0;
-    int camera=level?unwrap(-hs_a,s_frame_fg_x):ram16(0xEE78);
-    int camera_y=unwrap(v->vsram[0],s_frame_fg_y);
-    if(line==0) {
-        if(level)s_stage_width=stage_width();
-        s_camera=camera;s_camera_y=camera_y;++s_frames;
-        s_left=level?view_left(camera,width):camera-(width-nw)/2;
-        if(level && s_display && s_display->scene==1 && getenv("TRILOGY_SPRLOG") &&
-           (s_display->camera_x!=camera || s_display->camera_y!=camera_y))   /* development */
-            fprintf(stderr,"[SPR] f%u serial %u/%u cam %d,%d shown %d,%d misses %u holds %u\n",s_frames,s_display->serial,s_serial,
-                    s_display->camera_x,s_display->camera_y,camera,camera_y,s_scene_misses,s_scene_holds);
-    }
-    int origin=level?s_camera-s_left:(width-nw)/2;
-    s_native_x=origin;
-    unsigned base_a=(v->reg[2]&56u)<<10,base_b=(v->reg[4]&7u)<<13;
-    /* SaveScreen reverses the usual plane roles: the 320px portrait lives
-     * on the full-screen Window ($E000, 64 tiles per row), while B ($C000)
-     * holds the complete 1024px card strip (128 tiles per row).
-     * Use the installed layout through both entry and exit fades. */
-    int file_select=!level && file_select_layout(v);
-    int wy=camera_y+line;
-    int bg_world=level && !special;
+    if(s_interp && line<IX_LINES)hs_b=ix_lerp(s_ix[0].hs_b[line],s_ix[1].hs_b[line],128);
     /* The fire is a streamed Plane B composition, not the background at
      * the world's current layout coordinates. AIZ1BGE_FireTransition
      * writes rows from layout X=$1000 while replacing foreground blocks;
@@ -843,12 +1020,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     int aiz_fire=bg_world && s_frame_zone==0 &&
         ((s_frame_act==0 && s_frame_bg_event>=0xC && s_frame_bg_event<=0x14) ||
          (s_frame_act==1 && s_frame_bg_event<=8));
-    /* FireRefresh builds a temporary foreground from layout X=$180,
-     * then AIZ2BGE_FireRedraw installs the incoming stage. RAM's current
-     * chunks no longer describe the displayed foreground in between. */
-    int aiz_fire_fg=aiz_fire &&
-        ((s_frame_act==0 && s_frame_bg_event>=0x10) ||
-         (s_frame_act==1 && s_frame_bg_event==0));
     /* FBZ streams complete 512px rows from one of two layout canvases
      * (X=0 indoors, X=$200 outdoors). Its doorway events replace that
      * canvas a row/column at a time. The uploaded plane is authoritative
@@ -868,8 +1039,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     int bg_canvas=fbz_canvas || icz_canvas || ssz_canvas || dez3_canvas;
     int aiz_banks=bg_world && !s_frame_zone && !s_frame_act &&
         s_frame_bg_event<=8 && s_aiz_art_ready;
-    if(aiz_banks){aiz_palette(&s_aiz_intro,v,intro_palette);aiz_palette(&s_aiz_main,v,forest_palette);}
-    int by=bg_world?unwrap(v->vsram[1],s_frame_bg_y)+line:line+(v->vsram[1]&1023);
+    int vs_b=s_interp?ix_lerp(s_ix[0].vs_b,s_ix[1].vs_b,128):v->vsram[1];
+    int by=bg_world?unwrap(vs_b,s_frame_bg_y)+line:line+(vs_b&1023);
     int bg_width=bg_world?((s_world_frame[0x8002]<<8)|s_world_frame[0x8003])*128:0;
     /* AIZ1's upper parallax bands are a fixed 512px canvas. Its layout
      * also stores the intro coastline and fire art farther right: those
@@ -907,20 +1078,392 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * is the close, collidable boss arena entered by the later events. */
     if(bg_world && s_frame_zone==22 && !s_frame_act && !s_frame_bg_event)
         bg_width=512;
-    int blur=s_bg_blur && level && blur_buffers(width,line);
+    L->bg_world=bg_world;L->aiz_fire=aiz_fire;L->bg_canvas=bg_canvas;L->aiz_banks=aiz_banks;
+    L->hs_b=hs_b;L->by=by;L->bg_width=bg_width;
+}
+/* -> pixel (0 transparent); *attr its cell, *pal 0 live, 1 AIZ intro, 2 AIZ forest */
+static uint8_t bg_sample(const GVDP *v,const BgLine *L,int x,int line,uint16_t *attr,int *pal)
+{
+    int nx=x-L->origin,nw=L->nw,by=L->by;
+    int reference_bx=nx-L->hs_b,bx=reference_bx;
+    /* Title/menu backgrounds only initialize the visible 40 tile
+     * columns; repeat that composition, not the stale 512px name table. */
+    if(!L->level && !L->special && !L->file_select){bx%=nw;if(bx<0)bx+=nw;}
+    int background_x=bx;
+    if(L->bg_width>0) { background_x%=L->bg_width;if(background_x<0)background_x+=L->bg_width; }
+    uint16_t b=L->bg_world?world_attr(s_background_frame,background_x,by,1):plane_attr(v,L->base_b,bx,by);
+    uint8_t bp=pattern_pixel(v,b,L->bg_world?background_x:bx,by);
+    *pal=0;
+    if(L->file_select && (bx<0 || bx>=1024))bp=0;
+    if(L->bg_canvas) {
+        b=plane_attr(v,L->base_b,reference_bx,by);
+        bp=pattern_pixel(v,b,reference_bx,by);
+    }
+    if(L->aiz_fire) {
+        unsigned vs=1;
+        if(v->reg[11]&4) {
+            /* AIZTrans_WavyFlame advances its 16-entry wave by two
+             * per 16px column: extend that eight-column period into
+             * either margin. Keep every native column verbatim. */
+            unsigned col=nx>=0 && nx<nw?(unsigned)nx/16:((unsigned)nx/16)&7;
+            vs=col*2+1;
+        }
+        int fire_y=line+(v->vsram[vs]&1023);
+        b=plane_attr(v,L->base_b,reference_bx,fire_y);
+        bp=pattern_pixel(v,b,reference_bx,fire_y);
+    }
+    if(L->aiz_banks && (nx<0 || nx>=nw) && s_frame_bg_event==0) {
+        /* The coast behind the hollow tree and the forest ahead need their
+         * own decoded banks beyond the native viewport (see scanline). */
+        const AizArt *art=by>=0x380?&s_aiz_intro:&s_aiz_main;
+        b=world_attr_blocks(s_background_frame,art->blocks,background_x,by,1);
+        bp=pattern_pixel(&art->video,b,background_x,by);
+        *pal=by>=0x380?1:2;
+    }
+    *attr=b;
+    return bp;
+}
+
+/* Background blur (trilogy option): a depth of field. Plane B and the
+ * backdrop are softened by a 2D Gaussian behind the level, before the
+ * sprites go on; the level's own plane stays sharp. Each line's strength
+ * follows its parallax, measured from how far its scroll moves against the
+ * camera: scenery that barely moves (far mountains, sky) gets the whole
+ * radius, a band keeping pace with the foreground stays almost sharp.
+ * Lines below the beam come from the frame's latched VDP snapshot through
+ * bg_sample, exactly as the composite will draw them. Their colours resolve
+ * with the palette live when they are used, so a mid-frame palette change
+ * (the water line) only affects the few lines the kernel overlaps. */
+enum { BLUR_LINES=224, BLUR_R=9 };
+static int s_bg_blur;
+void s3_video_set_bg_blur(int level) { s_bg_blur = level < 0 ? 0 : level > 3 ? 3 : level; }
+/* Per line and column: the background sample (reused by the composite), then
+ * its horizontally blurred colour as three planes, so both passes are plain
+ * multiply-adds over arrays (vectorised). */
+static uint16_t *s_blur_idx;                  /* (palette set << 8) | pixel, 0 backdrop */
+static uint16_t *s_blur_attr;                 /* the cell (priority) of that sample */
+static uint8_t *s_blur_h[3];                  /* r, g, b after the horizontal pass */
+static uint8_t *s_blur_mask;                  /* this line: background visible */
+static uint16_t *s_blur_pad[3];               /* one line of colour, edge-padded by BLUR_R */
+static uint32_t *s_blur_acc[3];
+static int s_blur_cap,s_blur_sampled,s_blur_active;
+static unsigned s_blur_frame;                  /* s_frames when this frame's look-ahead began */
+static unsigned s_blur_gen,s_blur_hgen[BLUR_LINES];
+static uint32_t s_blur_pal[3*64],s_blur_backdrop;
+static float s_blur_depth[BLUR_LINES];        /* 0 far .. 1 moves with the foreground */
+static int s_blur_prev_bg[BLUR_LINES],s_blur_prev_cam,s_blur_dcam,s_blur_zone=-1;
+
+static int blur_alloc(int width)
+{
+    if(width<=s_blur_cap)return 1;
+    size_t n=(size_t)width*BLUR_LINES;
+    int ok=1;
+#define BLUR_GROW(ptr,count) do{void *q_=realloc(ptr,(count)*sizeof *(ptr));if(q_)(ptr)=q_;else ok=0;}while(0)
+    BLUR_GROW(s_blur_idx,n);BLUR_GROW(s_blur_attr,n);BLUR_GROW(s_blur_mask,(size_t)width);
+    for(int c=0;c<3;++c){BLUR_GROW(s_blur_h[c],n);BLUR_GROW(s_blur_pad[c],(size_t)width+2*BLUR_R);BLUR_GROW(s_blur_acc[c],(size_t)width);}
+#undef BLUR_GROW
+    if(!ok)return 0;
+    s_blur_cap=width;
+    return 1;
+}
+static float blur_sigma(int line)
+{
+    static const float base[4]={0,1.3f,2.4f,3.8f};      /* LOW, MEDIUM, HIGH: farthest layer */
+    float k=s_blur_depth[line];
+    float f=1-(k<0?0:k>1?1:k);
+    return base[s_bg_blur]*(f<.15f?.15f:f);
+}
+/* normalised Gaussian taps (16.16) for sigma, cached by quarter pixel */
+static const uint32_t *blur_kernel(float sigma,int *radius)
+{
+    static uint32_t taps[64][2*BLUR_R+1];
+    static int8_t r[64],ready[64];
+    int q=(int)(sigma*4+.5f);
+    if(q<1)q=1;
+    if(q>63)q=63;
+    if(!ready[q]) {
+        float sg=q/4.0f,w[2*BLUR_R+1],sum=0;
+        int rr=(int)ceilf(sg*2.5f);
+        if(rr>BLUR_R)rr=BLUR_R;
+        for(int i=-rr;i<=rr;++i){w[i+rr]=expf(-(float)(i*i)/(2*sg*sg));sum+=w[i+rr];}
+        uint32_t total=0;
+        for(int i=0;i<=2*rr;++i){taps[q][i]=(uint32_t)(w[i]/sum*65536+.5f);total+=taps[q][i];}
+        taps[q][rr]+=65536u-total;                            /* exact unit gain */
+        r[q]=(int8_t)rr;ready[q]=1;
+    }
+    *radius=r[q];
+    return taps[q];
+}
+static void blur_sample_line(const GVDP *v,int l,int width,const BgLine *cur)
+{
+    BgLine L;
+    bg_line_setup(v,l,cur->level,cur->special,cur->file_select,cur->origin,cur->nw,&L);
+    uint16_t *dst=s_blur_idx+(size_t)l*width,*at=s_blur_attr+(size_t)l*width;
+    for(int x=0;x<width;++x) {
+        int pal;
+        uint8_t p=bg_sample(v,&L,x,l,&at[x],&pal);
+        dst[x]=p?(uint16_t)((pal<<8)|p):0;
+    }
+}
+static void blur_hline(int l,int width)
+{
+    const uint16_t *src=s_blur_idx+(size_t)l*width;
+    uint16_t *pr=s_blur_pad[0]+BLUR_R,*pg=s_blur_pad[1]+BLUR_R,*pb=s_blur_pad[2]+BLUR_R;
+    for(int x=0;x<width;++x) {
+        uint16_t i=src[x];
+        uint32_t c=i?s_blur_pal[(i>>8)*64+(i&63)]:s_blur_backdrop;
+        pr[x]=(uint16_t)((c>>16)&255);pg[x]=(uint16_t)((c>>8)&255);pb[x]=(uint16_t)(c&255);
+    }
+    for(int k=1;k<=BLUR_R;++k) {
+        pr[-k]=pr[0];pg[-k]=pg[0];pb[-k]=pb[0];
+        pr[width-1+k]=pr[width-1];pg[width-1+k]=pg[width-1];pb[width-1+k]=pb[width-1];
+    }
+    int r;const uint32_t *k=blur_kernel(blur_sigma(l),&r);
+    for(int c=0;c<3;++c) {
+        uint32_t *__restrict acc=s_blur_acc[c];
+        const uint16_t *__restrict in=s_blur_pad[c]+BLUR_R;
+        uint8_t *__restrict out=s_blur_h[c]+(size_t)l*width;
+        for(int x=0;x<width;++x)acc[x]=32768u;
+        for(int i=-r;i<=r;++i) {
+            uint32_t w=k[i+r];
+            const uint16_t *__restrict p=in+i;
+            for(int x=0;x<width;++x)acc[x]+=w*p[x];
+        }
+        for(int x=0;x<width;++x)out[x]=(uint8_t)(acc[x]>>16);
+    }
+    s_blur_hgen[l]=s_blur_gen;
+}
+/* Before the composite of `line`: track its parallax, and make sure every
+ * line the vertical kernel reaches has been sampled and blurred across. */
+static int blur_prepare(const GVDP *v,int line,int width,const BgLine *L,int camera,
+                        const uint32_t *palette,const uint32_t *intro,const uint32_t *forest,uint32_t backdrop)
+{
+    s_blur_active=0;
+    if(!blur_alloc(width) || line>=BLUR_LINES)return 0;
+    if(line==0 && s_interp) {
+        s_blur_sampled=-1;s_blur_frame=s_frames;
+        ++s_blur_gen;
+    } else if(line==0) {
+        s_blur_sampled=-1;s_blur_frame=s_frames;
+        s_blur_dcam=camera-s_blur_prev_cam;
+        s_blur_prev_cam=camera;
+        if((int)s_frame_zone!=s_blur_zone || abs(s_blur_dcam)>64) {   /* new stage or a jump: start over */
+            s_blur_zone=(int)s_frame_zone;s_blur_dcam=0;
+            for(int i=0;i<BLUR_LINES;++i)s_blur_depth[i]=.5f;
+        }
+        ++s_blur_gen;
+    } else if(s_blur_frame!=s_frames || s_blur_sampled<line)return 0;   /* (switched on mid-frame) */
+    /* parallax of this line: background scroll moved per camera pixel */
+    int bgx=-L->hs_b;
+    if(s_blur_dcam && !s_interp) {
+        float k=(float)(int16_t)(bgx-s_blur_prev_bg[line])/(float)s_blur_dcam;
+        k=k<0?0:k>1.5f?1.5f:k;
+        s_blur_depth[line]+=(k-s_blur_depth[line])*.2f;
+    }
+    if(!s_interp)s_blur_prev_bg[line]=bgx;
+    /* the palette generation: a change mid-frame re-resolves lines from here down */
+    int changed=s_blur_backdrop!=backdrop || memcmp(s_blur_pal,palette,64*sizeof *palette) ||
+        (intro && memcmp(s_blur_pal+64,intro,64*sizeof *intro)) ||
+        (forest && memcmp(s_blur_pal+128,forest,64*sizeof *forest));
+    if(changed) {
+        memcpy(s_blur_pal,palette,64*sizeof *palette);
+        if(intro)memcpy(s_blur_pal+64,intro,64*sizeof *intro);
+        if(forest)memcpy(s_blur_pal+128,forest,64*sizeof *forest);
+        s_blur_backdrop=backdrop;
+        if(line)++s_blur_gen;
+    }
+    int rv;blur_kernel(blur_sigma(line),&rv);
+    int last=line+BLUR_R;
+    if(last>=BLUR_LINES)last=BLUR_LINES-1;
+    while(s_blur_sampled<last)blur_sample_line(v,++s_blur_sampled,width,L);
+    /* Lines above were each blurred across when they were the current line,
+     * with their own palette; only this line and those below can be stale. */
+    for(int l=line;l<=last && l<=line+rv;++l)
+        if(s_blur_hgen[l]!=s_blur_gen)blur_hline(l,width);
+    s_blur_active=1;
+    return 1;
+}
+/* The composite's own background sample for this line (taken by the look-ahead). */
+static inline uint8_t blur_cached(int line,int x,int width,uint16_t *attr,int *pal)
+{
+    size_t i=(size_t)line*width+x;
+    uint16_t v=s_blur_idx[i];
+    *attr=s_blur_attr[i];*pal=v>>8;
+    return (uint8_t)(v&255);
+}
+/* After the composite: the vertical half, on the background's pixels only. */
+static void blur_apply(int line,uint32_t *out,int width)
+{
+    int r;const uint32_t *k=blur_kernel(blur_sigma(line),&r);
+    for(int c=0;c<3;++c) {
+        uint32_t *__restrict acc=s_blur_acc[c];
+        for(int x=0;x<width;++x)acc[x]=32768u;
+        for(int j=-r;j<=r;++j) {
+            int l=line+j;l=l<0?0:l>=BLUR_LINES?BLUR_LINES-1:l;
+            uint32_t w=k[j+r];
+            const uint8_t *__restrict h=s_blur_h[c]+(size_t)l*width;
+            for(int x=0;x<width;++x)acc[x]+=w*h[x];
+        }
+    }
+    const uint32_t *ar=s_blur_acc[0],*ag=s_blur_acc[1],*ab=s_blur_acc[2];
+    for(int x=0;x<width;++x)
+        if(s_blur_mask[x])
+            out[x]=(out[x]&0xFF000000u)|((ar[x]>>16)<<16)|((ag[x]>>16)<<8)|(ab[x]>>16);
+}
+
+static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
+                     uint32_t *out, int width)
+{
+    /* Publish one immutable art/scroll snapshot per frame. Palettes stay
+     * live so water-line HBlank colour changes are retained. */
+    uint32_t palette[64],shadow[64],intro_palette[64],forest_palette[64];
+    int uniform_palette=1,ixl=line<IX_LINES?line:IX_LINES-1;
+    const uint16_t *cram=s_interp?s_ix[1].cram[ixl]:v->cram;
+    for(int i=0;i<64;++i) {
+        palette[i]=genesis_dac_cram_to_argb(cram[i],GENESIS_DAC_NORMAL);
+        shadow[i]=genesis_dac_cram_to_argb(cram[i],GENESIS_DAC_SHADOW);
+        if(palette[i]!=palette[0])uniform_palette=0;
+    }
+    if(!s_interp) {                          /* (record what this real frame uses) */
+        if(line==0)s_ix[0]=s_ix[1];
+        memcpy(s_ix[1].cram[ixl],v->cram,sizeof s_ix[1].cram[ixl]);
+        if(nw<=IX_NATIVE)memcpy(s_ix_native[ixl],native,(size_t)nw*sizeof *native);
+        s_ix_nw=nw;s_ix[1].lines=line+1;s_ix[1].width=width;
+    }
+    if(line==0 && !s_interp) {
+        memcpy(&s_video_frame,v,sizeof s_video_frame);
+        s_ix[1].vs_a=s_video_frame.vsram[0];s_ix[1].vs_b=s_video_frame.vsram[1];
+        memcpy(s_world_frame,g_ram,sizeof s_world_frame);
+        /* HUD visibility is not level readiness: AIZ hides it for the whole
+         * landing/emerald cutscene while displaying the real stage planes. */
+        s_frame_level=level_ready();
+        /* The native special-stage exit changes mode before its 60-frame
+         * fade. Keep the globe until its shadow/highlight video mode ends. */
+        s_frame_special=(g_ram[0xF600]&127)==0x34 ||
+            (s_frame_special && (v->reg[12]&8) && (v->reg[1]&64));
+        if(s_frame_special)ss_begin(v,width);
+        s_frame_zone=g_ram[0xFE10];
+        s_frame_act=g_ram[0xFE11];s_frame_bg_event=ram16(0xEEC2);
+        s_frame_tree_reveal=ram16(0xEEC4);
+        if(s_frame_level && !s_frame_zone && !s_frame_act)load_aiz_art();
+        /* The intro queues the main-level block definitions before its
+         * two-row-at-a-time name-table refresh. Keep the outgoing background
+         * definitions intact while Kosinski is overwriting their RAM. */
+        int replacing_intro=s_frame_level && s_frame_zone==0 && s_frame_act==0 &&
+            s_frame_bg_event==0 && ram16(0xEEC6);
+        if(!replacing_intro)memcpy(s_background_frame,s_world_frame,sizeof s_background_frame);
+        s_frame_fg_x=ram16(0xEE80);s_frame_fg_y=ram16(0xEE84);s_frame_bg_y=ram16(0xEE90);
+        s_frame_bg_band[0]=(int16_t)ram16(0xA800);
+        s_frame_bg_band[1]=(int16_t)ram16(0xA804);
+        s_width=width;s_requested_width=width;
+        s_terrain_checks=s_terrain_errors=s_bg_checks=s_bg_errors=s_bg_unstreamed=0;
+        s_uninitialized_scroll_lines=s_terrain_unstreamed=0;
+        s_bad_x=s_bad_y=-1;s_bad_attr=s_bad_expected=0;
+        s_bg_bad_x=s_bg_bad_y=-1;s_bg_bad_a=s_bg_bad_expected=0;
+        if(width>s_priority_capacity) {
+            uint8_t *p=(uint8_t *)realloc(s_priority,(size_t)width);
+            if(p){s_priority=p;s_priority_capacity=width;}
+        }
+        select_scene(v);
+        if(s_display) {
+            memcpy(s_ix[1].ox,s_display->ox,sizeof s_ix[1].ox);
+            memcpy(s_ix[1].oy,s_display->oy,sizeof s_ix[1].oy);
+            memcpy(s_ix[1].ocode,s_display->ocode,sizeof s_ix[1].ocode);
+            s_ix[1].serial=s_display->serial;
+        } else memset(s_ix[1].ocode,0,sizeof s_ix[1].ocode);
+    }
+    v=&s_video_frame;
+    uint32_t backdrop=palette[v->reg[7]&63];
+    /* During a completed fade the game can clear/reload name tables before
+     * retiring its old player/display list. A flat palette displays no stage
+     * geometry and is not a valid tile-streaming comparison. Keep the full
+     * canvas flat; never expose in-progress stage decompression. */
+    if(uniform_palette && !(v->reg[12]&8)) {
+        for(int x=0;x<width;++x)out[x]=palette[0];
+        if(line==0 && !s_interp){++s_frames;s_native_x=(width-nw)/2;}
+        return;
+    }
+    /* Display-off/fades fill the same full-width canvas, not black sidebars.
+     * A rare unsupported mode also retains the selected output dimensions. */
+    if((nw!=320 && nw!=256) || !(v->reg[1]&64) || (v->reg[12]&6) ||
+       ((v->reg[12]&8) && !s_frame_special) || s_priority_capacity<width) {
+        uint32_t fill=!(v->reg[1]&64)?native[0]:backdrop;
+        for(int x=0;x<width;++x)out[x]=fill;
+        int x0=(width-nw)/2;
+        if(x0>=0)memcpy(out+x0,native,(size_t)nw*sizeof(uint32_t));
+        if(line==0 && !s_interp){++s_fallbacks;s_native_x=x0;}
+        return;
+    }
+    unsigned hsbase=(v->reg[13]&63u)<<10;
+    int hmode=v->reg[11]&3,hi=hmode==0?0:hmode==2?line&~7:line;
+    int hs_a=(int16_t)vram16(v,hsbase+(unsigned)hi*4);
+    int hs_b=(int16_t)vram16(v,hsbase+(unsigned)hi*4+2);
+    if(!s_interp){s_ix[1].hs_a[ixl]=(int16_t)hs_a;s_ix[1].hs_b[ixl]=(int16_t)hs_b;}
+    else {hs_a=ix_lerp(s_ix[0].hs_a[ixl],hs_a,128);hs_b=ix_lerp(s_ix[0].hs_b[ixl],hs_b,128);}
+    if(s_frame_special && ss_ready) {
+        if(line==0 && !s_interp){++s_frames;s_native_x=(width-nw)/2;}
+        ss_scanline(v,line,out,width,palette,shadow,hs_b);
+        return;
+    }
+    int level=s_frame_level,special=s_frame_special;
+    /* The next player object can exist while the title-card SAT is still
+     * displayed. Do not expose the incoming level before its own display
+     * list/planes reach VBlank. */
+    if(s_display && s_display->scene!=1)level=0;
+    int missing_scroll=0;
+    int camera=level?unwrap(-hs_a,s_frame_fg_x):ram16(0xEE78);
+    int camera_y=unwrap(s_interp?ix_lerp(s_ix[0].vs_a,s_ix[1].vs_a,128):v->vsram[0],s_frame_fg_y);
+    if(line==0) {
+        if(level)s_stage_width=stage_width();
+        s_camera=camera;s_camera_y=camera_y;
+        if(!s_interp)++s_frames;
+        s_left=level?view_left(camera,width):camera-(width-nw)/2;
+        if(level && !s_interp && s_display && s_display->scene==1 && getenv("TRILOGY_SPRLOG") &&
+           (s_display->camera_x!=camera || s_display->camera_y!=camera_y))   /* development */
+            fprintf(stderr,"[SPR] f%u serial %u/%u cam %d,%d shown %d,%d misses %u holds %u\n",s_frames,s_display->serial,s_serial,
+                    s_display->camera_x,s_display->camera_y,camera,camera_y,s_scene_misses,s_scene_holds);
+    }
+    int origin=level?s_camera-s_left:(width-nw)/2;
+    s_native_x=origin;
+    unsigned base_a=(v->reg[2]&56u)<<10,base_b=(v->reg[4]&7u)<<13;
+    /* SaveScreen reverses the usual plane roles: the 320px portrait lives
+     * on the full-screen Window ($E000, 64 tiles per row), while B ($C000)
+     * holds the complete 1024px card strip (128 tiles per row).
+     * Use the installed layout through both entry and exit fades. */
+    int file_select=!level && file_select_layout(v);
+    int wy=camera_y+line;
+    BgLine L;
+    bg_line_setup(v,line,level,special,file_select,origin,nw,&L);
+    int bg_world=L.bg_world,aiz_fire=L.aiz_fire,bg_canvas=L.bg_canvas,aiz_banks=L.aiz_banks;
+    int by=L.by,bg_width=L.bg_width;
+    /* FireRefresh builds a temporary foreground from layout X=$180,
+     * then AIZ2BGE_FireRedraw installs the incoming stage. RAM's current
+     * chunks no longer describe the displayed foreground in between. */
+    int aiz_fire_fg=aiz_fire &&
+        ((s_frame_act==0 && s_frame_bg_event>=0x10) ||
+         (s_frame_act==1 && s_frame_bg_event==0));
+    if(aiz_banks){aiz_palette(&s_aiz_intro,v,intro_palette);aiz_palette(&s_aiz_main,v,forest_palette);}
+    int blur=s_bg_blur && level && blur_prepare(v,line,width,&L,camera,palette,
+        aiz_banks?intro_palette:NULL,aiz_banks?forest_palette:NULL,backdrop);
+    /* A game-supplied Data Select ground stands in for the Window (the
+     * portrait and its DATA SELECT title) and the backdrop. The card strip
+     * and every sprite stay the cartridge's: in the native picture, a pixel
+     * is replaced only where the planes showed Window or backdrop and no
+     * sprite covered it. */
+    const uint32_t *ground=file_select && s_file_select_ground?s_file_select_ground(line,width):NULL;
+    if(ground && width>s_fs_capacity) {
+        uint32_t *e=(uint32_t *)realloc(s_fs_expect,(size_t)width*4u),*r=e?(uint32_t *)realloc(s_fs_repl,(size_t)width*4u):NULL;
+        if(e)s_fs_expect=e;
+        if(r){s_fs_repl=r;s_fs_capacity=width;}
+    }
+    if(width>s_fs_capacity)ground=NULL;
     for(int x=0;x<width;++x) {
         int nx=x-origin,wx=level?nx+camera:nx-hs_a;
-        int reference_bx=nx-hs_b,bx=reference_bx;
-        /* Title/menu backgrounds only initialize the visible 40 tile
-         * columns; repeat that composition, not the stale 512px name table. */
-        if(!level && !special && !file_select){bx%=nw;if(bx<0)bx+=nw;}
-
-        int background_x=bx;
-        if(bg_width>0) { background_x%=bg_width;if(background_x<0)background_x+=bg_width; }
+        int reference_bx=nx-hs_b;
         uint16_t a=level?world_attr(s_world_frame,wx,wy,0):plane_attr(v,base_a,nx-hs_a,line+(v->vsram[0]&1023));
-        uint16_t b=bg_world?world_attr(s_background_frame,background_x,by,1):plane_attr(v,base_b,bx,by);
+        uint16_t b;int bpal;
+        uint8_t bp=blur?blur_cached(line,x,width,&b,&bpal):bg_sample(v,&L,x,line,&b,&bpal);
         uint8_t ap=pattern_pixel(v,a,level?wx:nx-hs_a,level?wy:line+(v->vsram[0]&1023));
-        uint8_t bp=pattern_pixel(v,b,bg_world?background_x:bx,by);
         if(file_select) {
             /* Reflect only the portrait at its edges, retaining its native
              * pixel scale and a continuous backdrop at every aspect ratio.
@@ -929,26 +1472,19 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             if(ax>=nw)ax=2*nw-1-ax;
             a=vram16(v,0xE000u+(unsigned)(line/8*64+ax/8)*2u);
             ap=pattern_pixel(v,a,ax,line);
-            if(bx<0 || bx>=1024)bp=0;
-        }
-        const uint32_t *apalette=palette,*bpalette=palette;
-        if(bg_canvas) {
-            b=plane_attr(v,base_b,reference_bx,by);
-            bp=pattern_pixel(v,b,reference_bx,by);
-        }
-        if(aiz_fire) {
-            unsigned vs=1;
-            if(v->reg[11]&4) {
-                /* AIZTrans_WavyFlame advances its 16-entry wave by two
-                 * per 16px column: extend that eight-column period into
-                 * either margin. Keep every native column verbatim. */
-                unsigned col=nx>=0 && nx<nw?(unsigned)nx/16:((unsigned)nx/16)&7;
-                vs=col*2+1;
+            if(ground) {
+                int fg=ap && ((a&0x8000) || !bp || !(b&0x8000));
+                uint8_t p=fg?ap:bp;
+                s_fs_expect[x]=p?palette[p]:backdrop;
+                ap=0;fg=0;                          /* the Window (portrait, title) goes */
+                s_fs_repl[x]=fg?palette[ap]:bp?palette[bp]:ground[x];
+                s_priority[x]=(uint8_t)(((a&0x8000)&&ap)||((b&0x8000)&&bp));
+                out[x]=s_fs_repl[x];
+                continue;
             }
-            int fire_y=line+(v->vsram[vs]&1023);
-            b=plane_attr(v,base_b,reference_bx,fire_y);
-            bp=pattern_pixel(v,b,reference_bx,fire_y);
         }
+        const uint32_t *apalette=palette;
+        const uint32_t *bpalette=bpal==1?intro_palette:bpal==2?forest_palette:palette;
         if(aiz_fire_fg) {
             a=plane_attr(v,base_a,nx-hs_a,line+(v->vsram[0]&1023));
             ap=pattern_pixel(v,a,nx-hs_a,line+(v->vsram[0]&1023));
@@ -965,12 +1501,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                 ap=pattern_pixel(&art->video,a,wx,wy);
                 apalette=intro?intro_palette:forest_palette;
             }
-            if(s_frame_bg_event==0) {
-                art=by>=0x380?&s_aiz_intro:&s_aiz_main;
-                b=world_attr_blocks(s_background_frame,art->blocks,background_x,by,1);
-                bp=pattern_pixel(&art->video,b,background_x,by);
-                bpalette=by>=0x380?intro_palette:forest_palette;
-            }
+            /* (its background half is in bg_sample) */
         }
         /* AIZ1_ScreenEvent / AIZ_TreeReveal selectively upload the hollow
          * tree's 16px blocks before committing whole 128px layout chunks.
@@ -1002,13 +1533,13 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             int ext=gvdp_ext_line((foreground?a:b)&2047u);
             if(ext)out[x]=genesis_dac_cram_to_argb(gvdp_ext_color(line,ext,p),GENESIS_DAC_NORMAL);
         }
-        if(blur){s_blur_line[x]=bp?bpalette[bp]:backdrop;s_blur_mask[x]=(uint8_t)!foreground;}
+        if(blur)s_blur_mask[x]=(uint8_t)!foreground;
         /* Outside a native special-stage projection only planes are drawn,
          * so plane priority alone
          * determines shadow; native operator sprites remain in the center. */
         if(special && (v->reg[12]&8) && !s_priority[x])
             out[x]=shadow[p?p:v->reg[7]&63];
-        if(nx>=0 && nx<nw && !(x&7) && !missing_scroll) {
+        if(nx>=0 && nx<nw && !(x&7) && !missing_scroll && !s_interp) {
             if(level && !native_terrain_streamed(wy,s_frame_fg_y)) {
                 ++s_terrain_unstreamed;
             } else if(level && !aiz_fire_fg) {
@@ -1049,11 +1580,14 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
 
         }
     }
-    if(blur)blur_background(out,width);
+    if(blur)blur_apply(line,out,width);
     if(!level) {
         /* Logos/copyright/menus remain centered at their original pixel
          * scale. The full-width background follows the live scene palette. */
         if(origin>=0)memcpy(out+origin,native,(size_t)nw*sizeof(uint32_t));
+        if(ground)
+            for(int x=origin<0?0:origin;x<origin+nw && x<width;++x)
+                if(out[x]==s_fs_expect[x])out[x]=s_fs_repl[x];
         if(((g_ram[0xF600]&127)==4 || file_select) && s_display && s_display->scene==0)
             draw_scene_sprites(v,line,out,width,origin,palette);
         if((g_ram[0xF600]&127)==4 && s_actor_overlay)
@@ -1098,10 +1632,14 @@ void s3_video_command(int id, const char *json)
 }
 static void scene_frame_state(S3StateIO *io, SceneFrame *frame)
 {
+    static const S3VideoArt none;
     unsigned count = frame->count;
     s3_state_peek(io, offsetof(SceneFrame, count), &count, sizeof count);
     if (count > SCENE_SPRITES) io->ok = 0;
     S3_STATE(io, *frame);
+    if (io->mode == 2)                       /* (a game's pictures: redrawn at the next capture) */
+        for (unsigned n = 0; n < frame->count && n < SCENE_SPRITES; ++n)
+            if (frame->sprites[n].art) frame->sprites[n].art = &none;
 }
 void s3_video_state(S3StateIO *io)
 {
@@ -1133,6 +1671,7 @@ void s3_video_state(S3StateIO *io)
     if (io->mode == 2) {
         s_display = display ? &s_display_frame : NULL;
         s_frame_special = ss_ready = ss_latched = 0;
+        s_upload_serial = 0;                 /* (relatched at the next V-int) */
     }
 }
 /* Optional full-frame overlay owned by a game layer (trilogy pause menu). */
@@ -1143,4 +1682,36 @@ static void overlay_scanline(const struct GVDP *v, int line, uint32_t *out, int 
     (void)v;
     if (s_frame_overlay) s_frame_overlay(line, out, width);
 }
-const GameVideo sonic3_video = { configure, enabled, width, scanline, overlay_scanline };
+/* An in-between frame at phase t (0 = the previous frame, 1 = the latest),
+ * at the custom width, into `frame` (rows `stride` pixels apart). */
+static int interpolate(double t, uint32_t *frame, int stride, int height)
+{
+    if(!enabled() || s_ix[1].lines<=0 || s_ix[0].lines!=s_ix[1].lines ||
+       s_ix[0].width!=s_ix[1].width || s_ix[1].width!=s_width || s_ix_nw>IX_NATIVE)return 0;
+    int lines=height<s_ix[1].lines?height:s_ix[1].lines;
+    s_interp=1;s_ix_t=(float)(t<0?0:t>1?1:t);
+    for(int line=0;line<lines;++line) {
+        uint32_t *row=frame+(size_t)line*stride;
+        scanline(&s_video_frame,line,s_ix_native[line],s_ix_nw,row,s_width);
+        overlay_scanline(&s_video_frame,line,row,s_width);
+    }
+    s_interp=0;
+    {   /* development: S3_INTERP_DUMP=<dir> writes in-between frames 1200..1209 as PPM */
+        static const char *dir;static int checked;static unsigned n;
+        if(!checked){dir=getenv("S3_INTERP_DUMP");checked=1;}
+        if(dir && *dir && s_frames>=1200 && s_frames<1210) {
+            char path[1024];snprintf(path,sizeof path,"%s/f%04u_%03u.ppm",dir,s_frames,(unsigned)(t*1000));
+            FILE *f=fopen(path,"wb");
+            if(f) {
+                fprintf(f,"P6 %d %d 255\n",s_width,lines);
+                for(int y=0;y<lines;++y)for(int x=0;x<s_width;++x) {
+                    uint32_t c=frame[(size_t)y*stride+x];uint8_t rgb[3]={(uint8_t)(c>>16),(uint8_t)(c>>8),(uint8_t)c};
+                    fwrite(rgb,1,3,f);
+                }
+                fclose(f);++n;
+            }
+        }
+    }
+    return 1;
+}
+const GameVideo sonic3_video = { configure, enabled, width, scanline, overlay_scanline, interpolate };

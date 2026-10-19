@@ -237,9 +237,10 @@ function(add_recomp_mode TARGET PREFIX GAME_DIR ROM PORT_NATIVE PORT_ORACLE)
             "${S3_GAME_COMMON}/sonic3_title_art.c"
             "${S3_GAME_COMMON}/sonic3_mods.c")
     endif()
-    # Sonic Trilogy layer: S1/S2 zones on the combined cart (game/trilogy).
+    # Sonic Anthology layer: S1/S2 zones on the combined cart (game/trilogy).
     if(PREFIX STREQUAL "sonic3k")
         file(GLOB _TRILOGY_SRC "${CMAKE_SOURCE_DIR}/game/trilogy/*.c")
+        # (Sonic CD zones still being written: in once integrated)
         list(APPEND SHARED_SRC ${_TRILOGY_SRC})
     endif()
     # Clean-room 68000 interpreter/decoder/rom_parser: the _wt-cosim engine's
@@ -404,13 +405,20 @@ foreach(_mode sonic3 sonic3k sandk)
         INPUT "${CMAKE_BINARY_DIR}/release-${_mode}.json" TARGET ${_target})
 endforeach()
 
+# Sonic Anthology's own title art (original, made for the project): beside the exe.
+if(TARGET Sonic3KRecomp)
+    add_custom_command(TARGET Sonic3KRecomp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/game/trilogy/assets" "$<TARGET_FILE_DIR:Sonic3KRecomp>/assets/trilogy")
+endif()
+
 # Shared recomp-ui (Dear ImGui) pre-boot launcher — added to ALL THREE native
 # targets (each is its own game/exe sharing this repo's output dir). Each stages
 # its OWN box art under a distinct name (BOXART_NAME); the runner's seam selects
 # it per mode via g_game_spec.boxart -> assets/img/boxart-<mode>.tga. Defines
 # RECOMP_LAUNCHER.
-# Sonic Trilogy: no recomp-ui launcher (the game starts straight in; setup is
-# TrilogyBuilder, tools/trilogy/builder). S3_RECOMP_UI=ON restores it.
+# Sonic Anthology: no recomp-ui launcher (the game starts straight in; setup is
+# AnthologyBuilder, tools/trilogy/builder). S3_RECOMP_UI=ON restores it.
 option(S3_RECOMP_UI "Build the recomp-ui pre-boot launcher" OFF)
 if(S3_RECOMP_UI)
 set(RECOMP_UI_ENABLE_MODS ON CACHE BOOL "Expose Sonic 3 family's opt-in built-in mods")

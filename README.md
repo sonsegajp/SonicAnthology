@@ -1,36 +1,45 @@
-# Sonic Trilogy
+# Sonic Anthology
 
-**Sonic 1, Sonic 2 and Sonic 3 & Knuckles as one game**: every zone of all
-three, played in the Sonic 3 & Knuckles engine, natively on PC. Sonic 3 & Knuckles
-itself runs as a static recompilation; Sonic 1 and Sonic 2's zones, objects,
-bosses, special stages, music and endings are rebuilt on top of it in our own C,
-transcribed from the original games' code.
+**Sonic 1, Sonic 2, Sonic CD and Sonic 3 & Knuckles as one game**: every zone,
+played in the Sonic 3 & Knuckles engine, natively on PC. Sonic 3 & Knuckles
+itself runs as a static recompilation; Sonic 1, Sonic 2 and Sonic CD's zones,
+objects, bosses, special stages, music and endings are rebuilt on top of it in
+our own C, transcribed from the original games' code.
 
 - All of Sonic 1 and Sonic 2 (endings included) beside Sonic 3 & Knuckles, from one Data Select
+- Sonic CD, if you have the disc: all seven rounds in every time period, time travel,
+  the bosses and Metal Sonic's race, and the UFO special stages, with the disc's own music
+- Optional Sonic Origins player sprites, from your own Sonic Origins install
 - Play any zone as Sonic, Tails or Knuckles, with abilities and achievements to unlock
   (drop dash, peel-out, homing attack; Tails' flight boost; Knuckles' burrow and wall spin dash...)
 - Options: widescreen, CRT filters, background blur, colour filters and more (pause menu)
 
-**No game data is included.** Sonic Trilogy is built on your PC from your own
-cartridge dumps by **TrilogyBuilder**.
+**No game data is included.** Sonic Anthology is built on your PC from your own
+dumps (and, optionally, your Sonic CD disc and Sonic Origins install) by
+**AnthologyBuilder**.
 
 How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE_ZONES_GOT_IN.md).
 
 ## Playing
 
 1. Download the latest zip from [Releases](../../releases) and unpack it anywhere.
-2. Run **TrilogyBuilder.exe** and choose your dumps (it checks them):
+2. Run **AnthologyBuilder.exe** and choose your dumps (it checks them):
 
    | Game | Dump | CRC32 |
    |---|---|---|
    | Sonic the Hedgehog | REV01 (World) | `AFE05EEE` |
    | Sonic the Hedgehog 2 | REV01 (World, Rev A) | `24AB4C3A` |
    | Sonic 3 & Knuckles | the 4 MB lock-on cart, **or** Sonic & Knuckles + Sonic 3 | `63522553` (`0658F691` + `9BC192CE`) |
+   | Sonic CD *(optional)* | a BIN/CUE dump of the disc (made with the Japanese release); choose its `.cue` | checked by its files |
+   | Sonic Origins *(optional)* | its install folder (found by itself in Steam's default place) | its `.rsdk` data packs |
 
    It writes `sonic3k.bin`, `trilogy.bin` and the Data Select previews beside the
-   game (about 7 minutes with the previews). Dumps left beside the game or in a
-   `roms` folder are found automatically.
-3. Press **Play**, or run **SonicTrilogy.exe** from then on.
+   game (about 7 minutes with the previews); with Sonic CD also `scd.bin` and
+   `scdss.bin` (the game plays the music from your disc image, so leave it where
+   it is), and with Sonic Origins `origins.bin` and `origins_ufo.bin`. Dumps left
+   beside the game or in a `roms` folder are found automatically. Without Sonic CD
+   its zones are simply not offered; add it any time by running the builder again.
+3. Press **Play**, or run **SonicAnthology.exe** from then on.
 
 Saves (`sonic3k.srm`), progress (`trilogy-progress.ini`) and settings
 (`settings.ini`, including the controls) stay beside the game. F11 or
@@ -42,13 +51,13 @@ Needs Visual Studio 2022 (MSVC), CMake 3.16+, and Python 3.10+ with Pillow for
 the builder. The S3K recompiler reads your Sonic 3 & Knuckles dump at build time.
 
 ```bash
-git clone --recursive https://github.com/sonsegajp/SonicTrilogy.git
-cd SonicTrilogy
+git clone --recursive https://github.com/sonsegajp/SonicAnthology.git
+cd SonicAnthology
 # put your Sonic 3 & Knuckles lock-on dump at game/sonic3k/sonic3k.bin
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --target Sonic3KRecomp
 python tools/trilogy/builder/trilogy_builder.py build/Release     # the builder, from source
-python tools/trilogy/builder/make_builder.py                      # or package TrilogyBuilder.exe (PyInstaller)
+python tools/trilogy/builder/make_builder.py                      # or package AnthologyBuilder.exe (PyInstaller)
 ```
 
 The trilogy lives in `game/trilogy/` (the C layer) and `tools/trilogy/` (the
@@ -64,7 +73,10 @@ on [our fork](https://github.com/sonsegajp/segagenesisrecomp/tree/sonic-trilogy)
 with addresses and names from Sonic Retro's
 [skdisasm](https://github.com/sonicretro/skdisasm),
 [s1disasm](https://github.com/sonicretro/s1disasm) and
-[s2disasm](https://github.com/sonicretro/s2disasm).
+[s2disasm](https://github.com/sonicretro/s2disasm), and Sonic CD's from
+[sonic-cd-disassembly](https://github.com/Dobby233Liu/sonic-cd-disassembly)
+(Ralakimus and contributors) and
+[soniccddecompilation](https://git.sr.ht/~benoitren/soniccddecompilation).
 Code: [PolyForm Noncommercial 1.0.0](LICENSE.md); third-party components: see
 `segagenesisrecomp/THIRD-PARTY-LICENSES.md`.
 

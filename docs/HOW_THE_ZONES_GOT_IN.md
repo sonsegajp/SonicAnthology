@@ -1,6 +1,6 @@
 # How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles
 
-Sonic Trilogy plays every zone of Sonic 1 and Sonic 2 in the Sonic 3 & Knuckles
+Sonic Anthology plays every zone of Sonic 1 and Sonic 2 in the Sonic 3 & Knuckles
 engine, beside S3K's own zones, from one Data Select. This document explains
 how: what runs, what was converted, what was rewritten, and the rules that kept
 it honest.
@@ -17,7 +17,7 @@ it honest.
   bosses, level events, the S2 special stage and ending) is transcribed by hand
   into C, routine by routine, from the Sonic Retro disassemblies.
 - **Nothing from the games is in this repository.** The converters in
-  `tools/trilogy/` run on the player's own cartridges (TrilogyBuilder) and
+  `tools/trilogy/` run on the player's own cartridges (AnthologyBuilder) and
   write `trilogy.bin`. The repo holds code, plus label addresses
   (`tools/trilogy/data/`).
 - **Faithful, not approximate.** Object behaviour is transcribed from the
@@ -26,7 +26,7 @@ it honest.
 
 ## Two seams into an unmodified cartridge
 
-Everything the trilogy adds reaches the S3K code through two engine contracts
+Everything the anthology adds reaches the S3K code through two engine contracts
 (`game/trilogy/trilogy.h`):
 
 1. **Hook sites.** About a hundred instructions in the retail code are marked
@@ -35,7 +35,7 @@ Everything the trilogy adds reaches the S3K code through two engine contracts
    `trilogy_hooks.h`). Just before or after such an instruction, our C runs and
    can repoint a register, or replace the routine outright. Most hooks sit where
    S3K fetches a per-zone table entry (level layout, collision, palette, art
-   cues, music, object layout, start position...) and point it at the trilogy
+   cues, music, object layout, start position...) and point it at the anthology
    zone's data instead. The retail routine then runs as usual on our data.
 2. **Native code addresses.** Code addresses from `$7E0000` up are not
    cartridge code but C functions (`dispatch_override`). An object whose code
@@ -43,7 +43,7 @@ Everything the trilogy adds reaches the S3K code through two engine contracts
    for Sonic 2). Zone screen events, the Sonic 2 special stage and the endings
    are native routines too.
 
-Trilogy zones get their own zone numbers (`$20`–`$26` for Sonic 1, `$28`–`$32`
+Anthology zones get their own zone numbers (`$20`–`$26` for Sonic 1, `$28`–`$32`
 for Sonic 2), so S3K's own zones can never be confused with them.
 
 ## The expansion bank
@@ -138,7 +138,7 @@ fire and belts...) are converted from each game's cycle tables.
   are re-assembled for S3K's sound driver, following SMPS2ASM's cross-driver
   rules: tempo conversion, coordination-flag re-encoding, FM operator order,
   carrier TL bits, PSG transposition, rest handling (`s1_music.py`,
-  `s2_music.py`). When a trilogy zone wants music, two song slots S3K never
+  `s2_music.py`). When a Sonic 1 or 2 zone wants music, two song slots S3K never
   uses in one-player (the competition themes) are pointed at the converted
   songs. The games' PSG envelopes go into S3K envelope slots nothing else uses
   (`trilogy_music.c`).
@@ -157,7 +157,7 @@ fire and belts...) are converted from each game's cycle tables.
 - **Act ends.** The original game's signpost or prison capsule (transcribed),
   then S3K's results tally. When it finishes, the next act of the campaign
   loads as a fresh level (`trilogy_flow.c`).
-- **Saves.** S3K's 10-byte save slots keep a level code. The trilogy numbers
+- **Saves.** S3K's 10-byte save slots keep a level code. The anthology numbers
   every zone in campaign order: Sonic 1's seven, Sonic 2's eleven, then S3K's
   fourteen. S3K's `SaveGame` and the Data Select read and write those codes
   through hooks (`trilogy_save.c`). A new game starts at Green Hill.
@@ -167,7 +167,7 @@ fire and belts...) are converted from each game's cycle tables.
 
 ## Special stages and endings
 
-- **One emerald run** spans the whole trilogy: every special stage plays for
+- **One emerald run** spans the whole anthology: every special stage plays for
   the next emerald not yet collected, whichever game the zone comes from. Once
   the seven Chaos Emeralds are in, they become Super Emeralds (`trilogy_ss.c`).
   Players choose per game (Sonic 1 and S3K: Blue Spheres; Sonic 2: its
@@ -184,7 +184,7 @@ fire and belts...) are converted from each game's cycle tables.
 ## Characters across games
 
 Sonic, Tails and Knuckles are S3K's characters everywhere, with their own
-moves. Where Sonic 1 or 2 assumed Sonic, the trilogy extends the rules. For
+moves. Where Sonic 1 or 2 assumed Sonic, the anthology extends the rules. For
 example, Knuckles breaks Sonic 1's smashable walls by pushing or gliding into
 them, as he does in S3K. On top of that sits an achievement and ability layer
 (`trilogy_menu.c`): drop dash, peel-out, homing attack, Tails' flight boost,

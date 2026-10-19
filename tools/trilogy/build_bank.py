@@ -887,7 +887,8 @@ def _q_glyph(o_tiles):
     return bytes(out)
 
 
-def build_title_cards(bank, s3k):
+def title_card_glyphs(s3k):
+    """glyph_tiles(ch): a letter's tiles from S3K's title card font"""
     lg = S3K_SYMS['TitleCard_LevelGfx']
     zone_art = {z: _kosm_decode(s3k, be32(s3k, lg + z * 4)) for z in range(14)}
     red = _kosm_decode(s3k, S3K_SYMS['ArtKosM_TitleCardRedAct'])
@@ -903,34 +904,44 @@ def build_title_cards(bank, s3k):
         art = zone_art[src]
         o = (base - 0x54D) * 32
         return art[o:o + w * 3 * 32]
+    return glyph_tiles
 
+
+def title_card_name(name, glyph_tiles):
+    """a zone name -> (its letters' tiles from $54D, the name's mapping frame)"""
+    tiles = bytearray()
+    placed = {}
+    pieces = []
+    x = 0
+    for ch in name:
+        if ch == ' ':
+            x += 8
+            continue
+        src, base, w = GLYPHS[ch]
+        key = 'M' if ch == 'W' else ch
+        flip = 0x1000 if ch == 'W' else 0
+        if src == 'common':
+            tile = base
+        else:
+            if key not in placed:
+                placed[key] = 0x54D + len(tiles) // 32
+                tiles += glyph_tiles(ch)
+            tile = placed[key]
+        pieces.append((x, ((w - 1) << 2) | 2, 0x8000 | flip | tile))
+        x += w * 8
+    start = 128 - x
+    frame = struct.pack('>H', len(pieces))
+    for px, size, tw in pieces:
+        frame += struct.pack('>bBHh', 0, size, tw, start + px)
+    return bytes(tiles), frame
+
+
+def build_title_cards(bank, s3k):
+    glyph_tiles = title_card_glyphs(s3k)
     frames = {}
     for zone, name in ZONE_NAMES.items():
-        tiles = bytearray()
-        placed = {}
-        pieces = []
-        x = 0
-        for ch in name:
-            if ch == ' ':
-                x += 8
-                continue
-            src, base, w = GLYPHS[ch]
-            key = 'M' if ch == 'W' else ch
-            flip = 0x1000 if ch == 'W' else 0
-            if src == 'common':
-                tile = base
-            else:
-                if key not in placed:
-                    placed[key] = 0x54D + len(tiles) // 32
-                    tiles += glyph_tiles(ch)
-                tile = placed[key]
-            pieces.append((x, ((w - 1) << 2) | 2, 0x8000 | flip | tile))
-            x += w * 8
-        start = 128 - x
-        frame = struct.pack('>H', len(pieces))
-        for px, size, tw in pieces:
-            frame += struct.pack('>bBHh', 0, size, tw, start + px)
-        art_a = bank.add(kosm_encode(bytes(tiles) if tiles else bytes(32)))
+        tiles, frame = title_card_name(name, glyph_tiles)
+        art_a = bank.add(kosm_encode(tiles if tiles else bytes(32)))
         frames[zone] = (art_a, frame)
     # mapping table: frame index = zone - $20 + 1 (frame 0 stays empty: the
     # multi-draw renderer treats frame 0 as "no main frame")

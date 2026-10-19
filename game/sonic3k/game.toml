@@ -644,6 +644,18 @@ kind = "game_hook"
 addr = 0x02D9A0 # trilogy TC_ACT (Obj_TitleCardAct)
 kind = "game_hook"
 [[widescreen_site]]
+addr = 0x02DC54 # trilogy RESULTS_MUSIC (Obj_LevelResultsWait)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0869C6 # trilogy ENDING_POSE (Set_PlayerEndingPose)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x011702 # trilogy RIGHT_BOUND (Player_LevelBound)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x01481C # trilogy CARRY_INPUT (Tails_FlyingSwimming)
+kind = "game_hook"
+[[widescreen_site]]
 addr = 0x02DB1C # trilogy RESULTS_ACTNUM (loc_2DB1C)
 kind = "game_hook"
 [[widescreen_site]]
@@ -683,6 +695,9 @@ kind = "game_hook"
 addr = 0x001488 # trilogy PAUSE_CHK (Pause_ChkStart)
 kind = "game_hook"
 [[widescreen_site]]
+addr = 0x00400C # trilogy TITLE_TAKEOVER (loc_3FF0)
+kind = "game_hook"
+[[widescreen_site]]
 addr = 0x0004C2 # trilogy GAMELOOP (GameLoop)
 kind = "game_hook"
 [[widescreen_site]]
@@ -717,6 +732,24 @@ addr = 0x017856 # trilogy SUPER_CHK_K (Knux_Test_For_Glide)
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x015144 # trilogy SUPER_CHK_T (Tails_Test_For_Flight)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x01515A # trilogy TAILS_CPU_FLY (Tails_Test_For_Flight)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00F2F2 # trilogy FLOOR_NEG (loc_F2F2)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00F394 # trilogy FLOOR2_NEG (loc_F394)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x01138C # trilogy ROOM_AHEAD_S (loc_1137E)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x014BB6 # trilogy ROOM_AHEAD_T (loc_14BA8)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0173BE # trilogy ROOM_AHEAD_K (loc_173B0)
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x01D6A2 # trilogy MON_SOLID (SolidObject_Monitor_SonicKnux)
@@ -768,6 +801,18 @@ addr = 0x00DB44 # trilogy RENDER_HUD (Render_HUD)
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x00D9A2 # trilogy DS_ZONE_ICON (loc_D9A2)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00C812 # trilogy DS_LOOP (SaveScreen_MainLoop)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00C75E # trilogy DS_INIT (loc_C72C)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x02326C # trilogy SPRING_NEAR (sub_2326C)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0076D0 # trilogy SOLIDS_SPLIT (LoadSolids)
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x00F298 # trilogy COL_ANGLE_0 (global)

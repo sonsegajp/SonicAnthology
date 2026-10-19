@@ -104,7 +104,8 @@ static const struct { const char *name, *desc; int unlock; } k_ach[A_COUNT] = {
 };
 
 /* saved by index: new options go at the end */
-enum { O_BLUR, O_DIM, O_POPUPS, O_BRIGHT, O_SAT, O_FILTER, O_DITHER, O_WIDE, O_FULL, O_SPECIAL, O_BGBLUR, O_CRT, O_COUNT };
+enum { O_BLUR, O_DIM, O_POPUPS, O_BRIGHT, O_SAT, O_FILTER, O_DITHER, O_WIDE, O_FULL, O_SPECIAL, O_BGBLUR, O_CRT,
+       O_ROTATE, O_SCALE, O_PIXEL, O_FPS, O_VSYNC, O_INTERP, O_SPRITES, O_COUNT };
 static const char *const k_dim[] = { "OFF", "LOW", "HIGH" };
 static const char *const k_bgblur[] = { "OFF", "LOW", "MEDIUM", "HIGH" };
 static const char *const k_crt[] = { "OFF", "SCANLINES", "PVM", "ARCADE", "TV" };
@@ -112,7 +113,12 @@ static const char *const k_bright[] = { "1", "2", "3", "4", "5" };
 static const char *const k_sat[] = { "GREY", "LOW", "NORMAL", "VIVID" };
 static const char *const k_filter[] = { "NONE", "WARM", "COOL", "SEPIA", "NIGHT" };
 static const char *const k_wide[] = { "OFF", "ADAPTIVE", "16:9", "21:9" };
-static const char *const k_special[] = { "PER GAME", "BLUE SPHERES", "HALF-PIPE" };
+static const char *const k_special[] = { "PER GAME", "BLUE SPHERES", "HALF-PIPE", "UFO STAGES" };
+static const char *const k_rotate[] = { "CLASSIC", "SMOOTH" };
+static const char *const k_scale[] = { "DEFAULT", "SHARP", "SMOOTH", "CRISP" };
+static const char *const k_vsync[] = { "AUTO", "ON", "OFF" };
+static const char *const k_interp[] = { "OFF", "120HZ", "144HZ", "DISPLAY" };
+static const char *const k_sprites[] = { "SONIC 1", "SONIC 2", "SONIC CD", "SONIC 3" };
 static const struct { const char *name, *desc; const char *const *values; int count; } k_opt[O_COUNT] = {
     { "PAUSE BLUR",       "BLUR THE GAME BEHIND THE PAUSE MENU.",   k_onoff, 2 },
     { "PAUSE DIM",        "DARKEN THE GAME BEHIND THE PAUSE MENU.", k_dim, 3 },
@@ -123,11 +129,19 @@ static const struct { const char *name, *desc; const char *const *values; int co
     { "DITHER BLEND",     "BLEND DITHERED PIXELS AS A TV WOULD. WATERFALLS AND SHADOWS LOOK SEE THROUGH.", k_onoff, 2 },
     { "WIDESCREEN",       "SHOW MORE OF THE LEVEL AT THE SIDES. ADAPTIVE FILLS THE WINDOW.", k_wide, 4 },
     { "FULLSCREEN",       "FILL THE WHOLE DISPLAY.",                k_onoff, 2 },
-    { "SPECIAL STAGES",   "PER GAME: SONIC 1 AND 3 PLAY BLUE SPHERES, SONIC 2 ITS HALF-PIPE.", k_special, 3 },
+    { "SPECIAL STAGES",   "PER GAME: SONIC 1 AND 3 PLAY BLUE SPHERES, SONIC 2 ITS HALF-PIPE, SONIC CD ITS UFO STAGES.", k_special, 4 },
     { "BACKGROUND BLUR",  "SOFTEN THE FAR BACKGROUND WHILE YOU PLAY, LIKE A CAMERA FOCUSED ON THE ACTION.", k_bgblur, 4 },
     { "CRT FILTER",       "LOOK LIKE A TUBE TV. PVM IS A SHARP STUDIO MONITOR. TV IS A CURVED HOME SET.", k_crt, 5 },
+    { "ROTATION",         "SMOOTH TILTS THE PLAYER TO THE EXACT SLOPE, AROUND LOOPS TOO.", k_rotate, 2 },
+    { "SCALING",          "SHARP: HARD PIXELS. SMOOTH: SOFT. CRISP: EVEN, SHARP PIXELS.", k_scale, 4 },
+    { "PIXEL PERFECT",    "SCALE THE PICTURE BY WHOLE STEPS ONLY, WITH A BORDER AROUND IT.", k_onoff, 2 },
+    { "FPS COUNTER",      "SHOW THE FRAME RATE IN THE CORNER.", k_onoff, 2 },
+    { "VSYNC",            "AUTO SYNCS ONLY 60HZ SCREENS. FASTER SCREENS ARE PACED BY THE GAME.", k_vsync, 3 },
+    { "SMOOTH MOTION",    "DRAW IN BETWEEN FRAMES FOR FAST SCREENS. ADDS A FRAME OF DELAY.", k_interp, 4 },
+    { "PLAYER SPRITES",   "WHICH GAME'S SONIC ORIGINS SPRITES DRAW THE PLAYERS. THE BUILDER PACKS THEM FROM YOUR OWN COPY.", k_sprites, 4 },
 };
-static const int k_video_opts[] = { O_BLUR, O_DIM, O_BRIGHT, O_SAT, O_FILTER, O_DITHER, O_BGBLUR, O_CRT, O_WIDE, O_FULL };
+static const int k_video_opts[] = { O_BLUR, O_DIM, O_BRIGHT, O_SAT, O_FILTER, O_DITHER, O_BGBLUR, O_ROTATE, O_SPRITES, O_CRT,
+                                    O_SCALE, O_PIXEL, O_VSYNC, O_INTERP, O_WIDE, O_FULL, O_FPS };
 static const int k_game_opts[] = { O_POPUPS, O_SPECIAL };
 #define N_VIDEO_OPTS ((int)(sizeof k_video_opts / sizeof k_video_opts[0]))
 #define N_GAME_OPTS  ((int)(sizeof k_game_opts / sizeof k_game_opts[0]))
@@ -188,6 +202,7 @@ static void prog_load(void)
     static int loaded;
     if (loaded) return;
     loaded = 1;
+    s_prog.opt[O_SPRITES] = 3;                       /* (Sonic 3's sprites unless chosen otherwise) */
     prog_path();
     FILE *f = fopen(s_path, "r");
     if (!f) return;
@@ -206,6 +221,46 @@ static void prog_load(void)
 
 /* first look at progress: file, then the testing switch (abilities on) */
 void genesis_present_set_crt(int preset);                   /* runner/crt_present.h */
+void genesis_present_set_scaling(int mode);
+void genesis_present_set_integer_scale(int on);
+void genesis_present_set_vsync(int mode);
+void genesis_present_set_interpolation(int hz);
+extern void s3_video_set_bg_blur(int level);
+extern void s3_video_set_rotation(int on);
+
+/* PLAYER SPRITES: Sonic Origins' Sonic 1 / 2 / CD / 3 as 1-4 (trilogy_origins.c;
+ * without the player's Origins pack, the cartridge's own) */
+int tri_option_player_sprites(void)
+{
+    prog_load();
+    return s_prog.opt[O_SPRITES] + 1;
+}
+
+/* options drawn by the layered renderer: it runs for them even at 4:3 */
+static int needs_renderer(void)
+{
+    extern int tri_origins_available(void);
+    return s_prog.opt[O_BGBLUR] || s_prog.opt[O_ROTATE] || s_prog.opt[O_INTERP] || tri_origins_available();
+}
+
+/* The layered renderer runs widescreen, or at the native 4:3 when only the
+ * background blur, the sprite rotation or the like needs it. */
+static const char *video_mode(void)
+{
+    static const char *const mode[4] = { "off", "fit", "16:9", "21:9" };
+    if (s_prog.opt[O_WIDE]) return mode[s_prog.opt[O_WIDE] & 3];
+    return needs_renderer() ? "4:3" : "off";
+}
+static void apply_present_options(void)
+{
+    genesis_present_set_crt(s_prog.opt[O_CRT]);
+    genesis_present_set_scaling(s_prog.opt[O_SCALE] ? s_prog.opt[O_SCALE] - 1 : -1);
+    genesis_present_set_integer_scale(s_prog.opt[O_PIXEL]);
+    genesis_present_set_vsync(s_prog.opt[O_VSYNC]);
+    { static const int hz[4] = { 0, 120, 144, -1 }; genesis_present_set_interpolation(hz[s_prog.opt[O_INTERP] & 3]); }
+    s3_video_set_bg_blur(s_prog.opt[O_BGBLUR]);
+    s3_video_set_rotation(s_prog.opt[O_ROTATE]);
+}
 
 static void prog_init(void)
 {
@@ -213,12 +268,9 @@ static void prog_init(void)
     if (done) return;
     done = 1;
     prog_load();
-    if (s_prog.opt[O_BGBLUR]) {                              /* (the saved blur, from the first frame) */
-        extern void s3_video_set_bg_blur(int level);
-        if (!sonic3_video.enabled()) sonic3_video.configure("4:3");
-        s3_video_set_bg_blur(s_prog.opt[O_BGBLUR]);
-    }
-    genesis_present_set_crt(s_prog.opt[O_CRT]);              /* (the saved CRT filter) */
+    if (needs_renderer() && !sonic3_video.enabled())
+        sonic3_video.configure("4:3");                        /* (the saved blur / rotation, from the first frame) */
+    apply_present_options();                                  /* (the saved CRT filter, scaling...) */
     if (unlocked(U_DROPDASH) && getenv("TRILOGY_UNLOCK_ALL"))
         for (int k = 0; k < N_ABIL; k++)
             if (!s_prog.value[k_abil_list[k]]) s_prog.value[k_abil_list[k]] = 1;
@@ -231,8 +283,9 @@ static void earn(int a)
 {
     if (s_prog.ach & (1u << a)) return;
     s_prog.ach |= 1u << a;
-    int u = k_ach[a].unlock;
-    if (u >= 0 && !s_prog.value[u]) s_prog.value[u] = 1;   /* new toys start switched on */
+    /* its unlock starts off (a value an older build saved included) until
+     * the player switches it on in the menu */
+    if (k_ach[a].unlock >= 0 && k_ach[a].unlock < U_COUNT) s_prog.value[k_ach[a].unlock] = 0;
     prog_save();
     fprintf(stderr, "[trilogy] achievement: %s\n", k_ach[a].name);
     if (s_prog.opt[O_POPUPS]) {
@@ -723,8 +776,144 @@ static void homing_pre(void)
     s_home_req = 1;
 }
 
+/* ---- Tails, carry me: Sonic Mania's sidekick carry ----------------------
+ * As Mania's CPU Tails (Player_Input_P2_AI, Player_JumpAbility_Tails,
+ * Player_HandleFlyCarry, Player_State_FlyCarried): the CPU Tails copies
+ * player 1's pad 16 frames late (S3K's own CPU does too), and it may take
+ * off (S3K's CPU never does) when that pad holds Up as it presses a jump
+ * button in the air: Sonic jumps, then Up + jump, and Tails follows suit.
+ * Flying, Tails catches Sonic by Mania's rule (Sonic in the air and not
+ * holding Down, within 12 px of 28 px below Tails, 33 curled; not within 30
+ * frames of letting go), not by S3K's own box, which is held off. Carrying,
+ * Tails takes Sonic's pad as it is (Mania hands the carried leader's input
+ * to the sidekick): the d-pad steers, A, B or C flaps; Down + a jump button
+ * drops Sonic, straight up at 4 px/f (2 under water). Tails tires after
+ * eight seconds (both games), then sinks with Sonic in hand till they land. */
+#define RAM_Flying_carrying_Sonic_flag 0xFFF73Eu   /* (+1: S3K's re-catch timer) */
+#define RAM_Ctrl_1_logical    0xFFF602u
+#define RAM_Ctrl_2_logical    0xFFF66Au
+#define TAILS_FLIGHT          0x25        /* double_jump_property: flight left / 2 */
+#define P_UNDERWATER          0x40        /* status bit 6 */
+enum { AS_OFF, AS_CARRY };
+static int s_assist, s_assist_drop, s_carry_cool;
+
+static int assist_tails(void)
+{
+    uint32_t t = RAM_Player_2;
+    return r16(RAM_Player_mode) == 0 && r32(t) == 0x01365Cu /* Obj_Tails */ && OB8(t, P_CHAR) == 1
+        && OB8(t, P_ROUTINE) == 2;
+}
+
+static void assist_end(void)
+{
+    if (s_assist == AS_CARRY) {
+        s_carry_cool = 30;                                   /* (FlyCarried left: flyCarryTimer = 30) */
+        w8(RAM_Ctrl_2_locked, 0);                            /* (the CPU follows again) */
+    }
+    s_assist = AS_OFF;
+}
+
+/* Tails_Test_For_Flight, at its "CPU: no flight" branch (beq): Mania lets the
+ * CPU fly when its copied pad holds Up */
+static void assist_cpu_fly(void)
+{
+    if (!assist_tails() || OB8(RAM_Player_1, P_CHAR) != 0) return;
+    if (r8(RAM_Ctrl_2_logical) & BTN_UP) g_cpu.SR &= ~4u;   /* (not equal: on into the flight) */
+}
+
+/* sub_1459E: Tails takes hold of Sonic */
+static void assist_grab(uint32_t t, uint32_t p)
+{
+    SET16(p, OBJ_x_vel, 0);
+    SET16(p, OBJ_y_vel, 0);
+    SET16(p, OBJ_ground_vel, 0);
+    SET16(p, P_ANGLE, 0);
+    SET16(p, OBJ_x_pos, OB16(t, OBJ_x_pos));
+    SET16(p, OBJ_y_pos, (uint16_t)(OB16(t, OBJ_y_pos) + 0x1C));
+    SET16(p, P_ANIM, 0x2200);                    /* hanging, and prev_anim */
+    SET8(p, P_ANIMTIME, 0);
+    SET8(p, 0x23, 0);                            /* anim_frame */
+    SET8(p, P_OBJCTRL, 3);
+    uint8_t face = OB8(t, OBJ_status) & 1;
+    SET8(p, OBJ_status, (uint8_t)((OB8(p, OBJ_status) | 2) & ~0x11) | face);   /* in air, no roll-jump */
+    SET8(p, P_SPINDASH, 0);
+    SET8(p, OBJ_render, (uint8_t)((OB8(p, OBJ_render) & ~3) | face));
+    w16(0xFFF744u, OB16(t, OBJ_x_vel));          /* (_unkF744 / _unkF74C: the carry's velocity check) */
+    SET16(p, OBJ_x_vel, OB16(t, OBJ_x_vel));
+    w16(0xFFF74Cu, OB16(t, OBJ_y_vel));
+    SET16(p, OBJ_y_vel, OB16(t, OBJ_y_vel));
+    w8(RAM_Flying_carrying_Sonic_flag, 1);
+    o_sfx(0x4A);                                 /* sfx_Grab */
+}
+
+/* Player_HandleFlyCarry's catch: Sonic in the air, in play (on the ground,
+ * curled, crouching, looking up or in the air: not held by anything), not
+ * holding Down, within 12 px of 28 px below Tails (33 when curled) */
+static int assist_catch(uint32_t t, uint32_t p)
+{
+    if (OB8(p, P_CHAR) != 0 || OB8(p, P_ROUTINE) != 2 || OB8(p, P_OBJCTRL) || OB8(p, P_SPINDASH)) return 0;
+    if (!(OB8(p, OBJ_status) & 2) || (r8(RAM_Ctrl_1_logical) & BTN_DOWN) || r16(RAM_Debug_placement_mode)) return 0;
+    int below = OB8(p, P_ANIM) == 2 ? 33 : 28;
+    int dx = (int16_t)(OB16(p, OBJ_x_pos) - OB16(t, OBJ_x_pos));
+    int dy = (int16_t)(OB16(p, OBJ_y_pos) - OB16(t, OBJ_y_pos)) - below;
+    return dx > -12 && dx < 12 && dy > -12 && dy < 12;
+}
+
+static void assist_pre(void)
+{
+    uint32_t p = RAM_Player_1, t = RAM_Player_2;
+    static int log = -1;                                     /* development */
+    if (log < 0) log = getenv("TRILOGY_ASSISTLOG") != NULL;
+    if (log && (s_assist || OB8(t, P_DJUMP)))
+        fprintf(stderr, "[ASSIST] st %d carry %02X cool %d | T x %04X y %04X st %02X oc %02X dj %02X fl %02X rt %02X an %02X c2 %04X | S x %04X y %04X st %02X oc %02X xv %04X yv %04X rt %02X | ctrl %04X\n",
+                s_assist, r8(RAM_Flying_carrying_Sonic_flag), s_carry_cool, OB16(t, OBJ_x_pos), OB16(t, OBJ_y_pos),
+                OB8(t, OBJ_status), OB8(t, P_OBJCTRL), OB8(t, P_DJUMP), OB8(t, TAILS_FLIGHT), OB8(t, P_ROUTINE),
+                OB8(t, P_ANIM), r16(RAM_Ctrl_2_logical), OB16(p, OBJ_x_pos), OB16(p, OBJ_y_pos), OB8(p, OBJ_status),
+                OB8(p, P_OBJCTRL), OB16(p, OBJ_x_vel), OB16(p, OBJ_y_vel), OB8(p, P_ROUTINE), r16(RAM_Ctrl_1));
+    if (s_carry_cool > 0) s_carry_cool--;
+    if (s_assist != AS_CARRY) return;
+    if (!assist_tails() || !r8(RAM_Flying_carrying_Sonic_flag)) {
+        if (s_assist_drop && (OB8(p, OBJ_status) & 2) && OB8(p, P_ROUTINE) == 2) {   /* (Down + jump: Mania's drop) */
+            SET16(p, OBJ_x_vel, 0);
+            SET16(p, OBJ_y_vel, (uint16_t)(OB8(p, OBJ_status) & P_UNDERWATER ? -0x200 : -0x400));
+        }
+        assist_end();
+        return;
+    }
+    uint8_t held = r8(RAM_Ctrl_1), pressed = r8(RAM_Ctrl_1 + 1);
+    w8(RAM_Ctrl_2_locked, 0xFF);                             /* (negative: no CPU steering) */
+    w16(RAM_Ctrl_2_logical, (uint16_t)(held << 8 | pressed));   /* (the leader's pad, as it is) */
+}
+
+/* Tails_FlyingSwimming, before Tails_Carry_Sonic (P1's pad in d0): Mania's
+ * catch in place of S3K's; carrying, a jump button lets go only with Down */
+static void assist_carry_input(void)
+{
+    uint32_t p = RAM_Player_1, t = RAM_Player_2;
+    if (!assist_tails()) return;
+    if (!r8(RAM_Flying_carrying_Sonic_flag)) {
+        if (!s_carry_cool && assist_catch(t, p)) {
+            assist_grab(t, p);                               /* (Tails_Carry_Sonic carries on from here) */
+            s_assist = AS_CARRY;
+            s_assist_drop = 0;
+        } else {
+            if (r8(RAM_Flying_carrying_Sonic_flag + 1) < 2)
+                w8(RAM_Flying_carrying_Sonic_flag + 1, 2);   /* (S3K's own catch: not yet, every frame) */
+            return;
+        }
+    }
+    uint16_t d0 = (uint16_t)D(0);
+    if (!((d0 >> 8) & BTN_DOWN))
+        D(0) = (D(0) & 0xFFFF0000u) | (uint16_t)(d0 & ~BTN_JUMP);
+    else {
+        D(0) = (D(0) & 0xFFFF0000u) | (uint16_t)(d0 & ~(0x0C00u));   /* (straight down: no sideways push) */
+        if (d0 & BTN_JUMP) s_assist_drop = 1;
+    }
+}
+
 static void pre_sprites(void)
 {
+    assist_pre();
     homing_pre();
     moves_pre();
     peel_pre();
@@ -774,6 +963,9 @@ static void peel_pre(void)
     o_sfx(0xB6);                                                /* sfx_Dash */
 }
 
+/* 1 while Sonic's drop dash is charged (PLAYER SPRITES draws the game's own) */
+int tri_drop_dash_ready(void) { return s_dd == 2; }
+
 static void drop_dash_launch(uint32_t p)
 {
     int super = r8(RAM_Super_Sonic_Knux_flag) != 0;
@@ -808,6 +1000,21 @@ static void post_sprites(void)
     if (fc < last_fc) level_entry();
     last_fc = fc;
     s_frames++;
+    {
+        static int hop = -1;                                 /* development: TRILOGY_ZONEHOP=za@frame, */
+        unsigned za, at;                                     /* as the zone select does, once */
+        if (hop < 0) hop = getenv("TRILOGY_ZONEHOP") && sscanf(getenv("TRILOGY_ZONEHOP"), "%x@%u", &za, &at) == 2;
+        if (hop == 1 && sscanf(getenv("TRILOGY_ZONEHOP"), "%x@%u", &za, &at) == 2 && fc >= at) {
+            hop = 2;
+            if (za) {                                        /* (0: restart the act, from its star post) */
+                extern void tri_level_next(uint16_t za);
+                tri_level_next((uint16_t)za);
+                w8(RAM_Last_star_post_hit, 0);
+            }
+            w16(RAM_Restart_level_flag, 1);
+            fprintf(stderr, "[trilogy] dev zone hop -> $%04X\n", za);
+        }
+    }
     int air = (OB8(p, OBJ_status) & 2) != 0;
     int jumping = OB8(p, P_JUMPING) != 0;
     uint8_t pressed = r8(RAM_Ctrl_1_held_logical + 1), held = r8(RAM_Ctrl_1_held_logical);
@@ -849,6 +1056,8 @@ static void post_sprites(void)
     if (sonic && air && jumping && s_prev_air && ((pressed & BTN_JUMP) || s_home_req) && !(OB8(p, P_STATUS2) & 0x70)) {
         uint32_t t = on(U_HOMING) ? homing_target(p) : 0;
         if (t) {
+            if (getenv("TRILOGY_MOVELOG"))                     /* development */
+                fprintf(stderr, "[HOMING] char %d obj %06X\n", OB8(p, P_CHAR), t);
             home_aim(p, t);
             s_homing = 1;
             s_home_target = t;
@@ -905,7 +1114,8 @@ static const char *const k_main[M_COUNT] = {
     "CONTINUE", "RESTART ACT", "ZONE SELECT", "ABILITIES", "UNLOCKS", "ACHIEVEMENTS", "OPTIONS", "EXIT TO TITLE"
 };
 
-/* zone select: every imported zone, act chosen with left / right */
+/* zone select: every imported zone, act chosen with left / right; Sonic CD's
+ * rounds (each time period its own row) when the disc's levels are there */
 static const struct { const char *name; uint16_t act[3]; int acts; } k_zones[] = {
     { "GREEN HILL",     { 0x2000, 0x2001, 0x2002 }, 3 },
     { "MARBLE",         { 0x2200, 0x2201, 0x2202 }, 3 },
@@ -914,6 +1124,34 @@ static const struct { const char *name; uint16_t act[3]; int acts; } k_zones[] =
     { "STAR LIGHT",     { 0x2300, 0x2301, 0x2302 }, 3 },
     { "SCRAP BRAIN",    { 0x2500, 0x2501, 0x2103 }, 3 },
     { "FINAL ZONE",     { 0x2502 }, 1 },
+    { "PALMTREE PANIC", { 0x4000, 0x4001 }, 2 },
+    { "PALMTREE PANIC PAST", { 0x4100, 0x4101 }, 2 },
+    { "PALMTREE PANIC GOOD FUTURE", { 0x4200, 0x4201, 0x4202 }, 3 },
+    { "PALMTREE PANIC BAD FUTURE", { 0x4300, 0x4301, 0x4302 }, 3 },
+    { "COLLISION CHAOS", { 0x4400, 0x4401 }, 2 },
+    { "COLLISION CHAOS PAST", { 0x4500, 0x4501 }, 2 },
+    { "COLLISION CHAOS GOOD FUTURE", { 0x4600, 0x4601, 0x4602 }, 3 },
+    { "COLLISION CHAOS BAD FUTURE", { 0x4700, 0x4701, 0x4702 }, 3 },
+    { "TIDAL TEMPEST", { 0x4800, 0x4801 }, 2 },
+    { "TIDAL TEMPEST PAST", { 0x4900, 0x4901 }, 2 },
+    { "TIDAL TEMPEST GOOD FUTURE", { 0x4A00, 0x4A01, 0x4A02 }, 3 },
+    { "TIDAL TEMPEST BAD FUTURE", { 0x4B00, 0x4B01, 0x4B02 }, 3 },
+    { "QUARTZ QUADRANT", { 0x4C00, 0x4C01 }, 2 },
+    { "QUARTZ QUADRANT PAST", { 0x4D00, 0x4D01 }, 2 },
+    { "QUARTZ QUADRANT GOOD FUTURE", { 0x4E00, 0x4E01, 0x4E02 }, 3 },
+    { "QUARTZ QUADRANT BAD FUTURE", { 0x4F00, 0x4F01, 0x4F02 }, 3 },
+    { "WACKY WORKBENCH", { 0x5000, 0x5001 }, 2 },
+    { "WACKY WORKBENCH PAST", { 0x5100, 0x5101 }, 2 },
+    { "WACKY WORKBENCH GOOD FUTURE", { 0x5200, 0x5201, 0x5202 }, 3 },
+    { "WACKY WORKBENCH BAD FUTURE", { 0x5300, 0x5301, 0x5302 }, 3 },
+    { "STARDUST SPEEDWAY", { 0x5400, 0x5401 }, 2 },
+    { "STARDUST SPEEDWAY PAST", { 0x5500, 0x5501 }, 2 },
+    { "STARDUST SPEEDWAY GOOD FUTURE", { 0x5600, 0x5601, 0x5602 }, 3 },
+    { "STARDUST SPEEDWAY BAD FUTURE", { 0x5700, 0x5701, 0x5702 }, 3 },
+    { "METALLIC MADNESS", { 0x5800, 0x5801 }, 2 },
+    { "METALLIC MADNESS PAST", { 0x5900, 0x5901 }, 2 },
+    { "METALLIC MADNESS GOOD FUTURE", { 0x5A00, 0x5A01, 0x5A02 }, 3 },
+    { "METALLIC MADNESS BAD FUTURE", { 0x5B00, 0x5B01, 0x5B02 }, 3 },
     { "EMERALD HILL",   { 0x2800, 0x2801 }, 2 },
     { "CHEMICAL PLANT", { 0x2900, 0x2901 }, 2 },
     { "AQUATIC RUIN",   { 0x2A00, 0x2A01 }, 2 },
@@ -930,11 +1168,27 @@ static const struct { const char *name; uint16_t act[3]; int acts; } k_zones[] =
 static int s_zone_act[N_ZONES];
 static const char *const k_actname[3] = { "ACT 1", "ACT 2", "ACT 3" };
 
+/* the rows on show: without Sonic CD's levels its rows drop out */
+static int zone_row(int i)
+{
+    if (tri_scd_available()) return i;
+    for (int k = 0; k < N_ZONES; k++)
+        if (!tri_cd_zone(k_zones[k].act[0] >> 8) && !i--) return k;
+    return 0;
+}
+static int zone_rows(void)
+{
+    int n = 0;
+    for (int k = 0; k < N_ZONES; k++) n += tri_scd_available() || !tri_cd_zone(k_zones[k].act[0] >> 8);
+    return n;
+}
+
 static void zone_warp(int i)
 {
+    i = zone_row(i);
     uint16_t za = k_zones[i].act[s_zone_act[i]];
-    w16(RAM_Current_zone_and_act, za);
-    w16(RAM_Apparent_zone_and_act, tri_apparent(za));
+    extern void tri_level_next(uint16_t za);
+    tri_level_next(za);                                      /* (as the level loads: trilogy_level.c) */
     w8(RAM_Last_star_post_hit, 0);
     w16(RAM_Restart_level_flag, 1);
     fprintf(stderr, "[trilogy] zone select -> $%04X\n", za);
@@ -952,7 +1206,7 @@ static int page_count(int pg)
     case PG_ACH:  return A_COUNT;
     case PG_OPT:  return 2;
     case PG_VIDEO: return N_VIDEO_OPTS;
-    case PG_ZONE: return N_ZONES;
+    case PG_ZONE: return zone_rows();
     default:      return N_GAME_OPTS;
     }
 }
@@ -974,20 +1228,19 @@ static SDL_Window *game_window(void)
 static void sync_live_options(void)
 {
     if (!sonic3_video.enabled()) s_prog.opt[O_WIDE] = 0;
-    else if (!s_prog.opt[O_WIDE] && !s_prog.opt[O_BGBLUR]) s_prog.opt[O_WIDE] = 1;   /* (blur alone runs it at 4:3) */
+    else if (!s_prog.opt[O_WIDE] && !needs_renderer())
+        s_prog.opt[O_WIDE] = 1;                               /* (blur or rotation alone runs it at 4:3) */
     SDL_Window *w = game_window();
     s_prog.opt[O_FULL] = w && (SDL_GetWindowFlags(w) & SDL_WINDOW_FULLSCREEN) ? 1 : 0;
 }
 
 static void apply_live_option(int o)
 {
-    if (o == O_WIDE || o == O_BGBLUR) {
-        static const char *const mode[4] = { "off", "fit", "16:9", "21:9" };
-        /* the blur needs the layered renderer: without widescreen it runs at the native 4:3 */
-        sonic3_video.configure(s_prog.opt[O_WIDE] ? mode[s_prog.opt[O_WIDE] & 3] : s_prog.opt[O_BGBLUR] ? "4:3" : "off");
-        s3_video_set_bg_blur(s_prog.opt[O_BGBLUR]);
-    } else if (o == O_CRT) {
-        genesis_present_set_crt(s_prog.opt[O_CRT]);
+    if (o == O_WIDE || o == O_BGBLUR || o == O_ROTATE || o == O_INTERP) {
+        sonic3_video.configure(video_mode());
+        apply_present_options();
+    } else if (o == O_CRT || o == O_SCALE || o == O_PIXEL || o == O_VSYNC) {
+        apply_present_options();
     } else if (o == O_FULL) {
         SDL_Window *w = game_window();
         if (w) SDL_SetWindowFullscreen(w, s_prog.opt[O_FULL] ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
@@ -997,6 +1250,7 @@ static void apply_live_option(int o)
 static void change(int pg, int i, int delta)
 {
     if (pg == PG_ZONE) {
+        i = zone_row(i);
         int n = k_zones[i].acts;
         s_zone_act[i] = (s_zone_act[i] + delta + n) % n;
         return;
@@ -1091,18 +1345,23 @@ static int glyph(char c)
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'A' && c <= 'Z') return 14 + c - 'A';
     if (c == '*') return 10;
+    if (c == '@') return 11;                     /* the font's (c) */
     if (c == ':') return 12;
     if (c == '.') return 13;
     return -1;
 }
 
-enum { C_NORMAL, C_SELECT, C_DIM, C_TITLE, C_GOOD };
-static const uint32_t k_ramp[5][3] = {      /* font colours 1 (shade), 6 (face), 7 (light) */
+enum { C_NORMAL, C_SELECT, C_DIM, C_TITLE, C_GOOD, C_INK, C_PALE, C_DARK, C_RED };
+static const uint32_t k_ramp[9][3] = {      /* font colours 1 (shade), 6 (face), 7 (light) */
     { 0x202040, 0xE0E0E0, 0xFFFFFF },
     { 0x604000, 0xFFE020, 0xFFFFA0 },
     { 0x101018, 0x686878, 0x8C8C9C },
     { 0x002060, 0x40A0FF, 0xC0E0FF },
     { 0x004010, 0x40E060, 0xC0FFC0 },
+    { 0xB8C4E4, 0x3157AE, 0x5777CE },       /* (the title's blue ink, on paper) */
+    { 0x102860, 0xA8BCE8, 0xD0DCF8 },       /* (pale, on the blue band) */
+    { 0xFFE080, 0x000000, 0x202020 },       /* (black, on a gold bar) */
+    { 0x600000, 0xE00000, 0xFF3131 },       /* (red, on a gold bar) */
 };
 
 /* one 8px text row into `out`, clipped to [x0, x1) */
@@ -1344,7 +1603,20 @@ static void panel_row(int line, uint32_t *out, int width)
     int n = page_count(s_page), sel = s_sel[s_page];
     const char *desc = NULL;
     char extra[48] = "";
-    for (int i = 0; i < n; i++, y += LINE_H) {
+    /* long pages scroll, keeping the selection in view (room for its description) */
+    int vis = s_page == PG_ACH ? n : s_page == PG_ZONE ? 17 : 12, first = 0;
+    if (vis > n) vis = n;
+    if (n > vis) {
+        first = sel - vis / 2;
+        if (first < 0) first = 0;
+        if (first > n - vis) first = n - vis;
+        int ay = y - 8, by = y + vis * LINE_H;                   /* more above / below: small triangles */
+        if (first > 0 && line >= ay && line < ay + 4)
+            for (int k = -(line - ay); k <= line - ay; k++) if (x1 - 12 + k < width) out[x1 - 12 + k] = 0x8090B0;
+        if (first + vis < n && line >= by && line < by + 4)
+            for (int k = -(3 - (line - by)); k <= 3 - (line - by); k++) if (x1 - 12 + k < width) out[x1 - 12 + k] = 0x8090B0;
+    }
+    for (int i = first; i < first + vis; i++, y += LINE_H) {
         if (line < y || line >= y + 8) continue;
         int row = line - y, col = i == sel ? C_SELECT : C_NORMAL;
         const char *name = "", *value = NULL;
@@ -1365,10 +1637,12 @@ static void panel_row(int line, uint32_t *out, int width)
         case PG_OPT:
             name = k_optmenu[i];
             break;
-        case PG_ZONE:
-            name = k_zones[i].name;
-            if (k_zones[i].acts > 1) value = k_actname[s_zone_act[i]];
+        case PG_ZONE: {
+            int k = zone_row(i);
+            name = k_zones[k].name;
+            if (k_zones[k].acts > 1) value = k_actname[s_zone_act[k]];
             break;
+        }
         default: {
             int o = opt_at(s_page, i);
             name = k_opt[o].name;
@@ -1401,7 +1675,7 @@ static void panel_row(int line, uint32_t *out, int width)
     default: break;
     }
     int cols = (x1 - tx - 6) / 8;
-    int dy = 32 + n * LINE_H + 8;                               /* below the list */
+    int dy = 32 + vis * LINE_H + 8;                             /* below the list */
     if (desc) {
         char buf[64];
         int k = 0;
@@ -1413,7 +1687,7 @@ static void panel_row(int line, uint32_t *out, int width)
                 if (line >= ey + j * 10 && line < ey + j * 10 + 8) text_line(out, line - ey - j * 10, tx, buf, C_SELECT, x1);
         }
     }
-    if (s_page == PG_MAIN) emerald_tracker(line, out, tx, x1, 32 + n * LINE_H + 8);
+    if (s_page == PG_MAIN) emerald_tracker(line, out, tx, x1, 32 + vis * LINE_H + 8);
     if (s_page != PG_ACH && line >= 224 - 14 && line < 224 - 6)
         text_line(out, line - (224 - 14), tx, s_page == PG_MAIN ? "A SELECT" : s_page == PG_OPT ? "A SELECT  B BACK" : s_page == PG_ZONE ? "A GO  B BACK" : "A CHANGE  B BACK", C_DIM, x1);
     if (s_page == PG_ACH && line >= 224 - 14 && line < 224 - 6) {
@@ -1480,16 +1754,42 @@ static void video_fx(uint32_t *out, int width)
     }
 }
 
+/* frames shown per second of real time, in the top right corner */
+static void fps_row(int line, uint32_t *out, int width)
+{
+    static Uint32 s_t0;
+    static int s_count, s_fps;
+    if (line == 0) {
+        Uint32 now = SDL_GetTicks();
+        if (!s_t0) s_t0 = now;
+        s_count++;
+        if (now - s_t0 >= 1000) { s_fps = (int)((s_count * 1000u + (now - s_t0) / 2) / (now - s_t0)); s_count = 0; s_t0 = now; }
+    }
+    if (!s_fps || line < 4 || line >= 12) return;
+    char buf[16];
+    snprintf(buf, sizeof buf, "%d FPS", s_fps);
+    int x = width - 6 - text_w(buf);
+    for (int k = x - 2; k < width - 4; k++) if (k >= 0) out[k] = mix(out[k], 0x000010, 1, 2);
+    text_line(out, line - 4, x, buf, s_fps >= 59 ? C_GOOD : C_SELECT, width);
+}
+
 static void frame_overlay(int line, uint32_t *out, int width)
 {
     extern void tri_thumb_overlay(int line, uint32_t *out, int width);
+    extern void tri_title_frame(int line, uint32_t *out, int width);
     tri_thumb_overlay(line, out, width);                         /* (the Data Select's recorded zone cards) */
+    tri_title_frame(line, out, width);                           /* (the title screen, trilogy_title.c) */
+    {
+        extern void tri_scdss_overlay(int line, uint32_t *out, int width);
+        tri_scdss_overlay(line, out, width);                     /* (Sonic CD's UFO stages: pillarboxed) */
+    }
     video_fx(out, width);
     if (s_open && r16(RAM_Game_paused)) {
         blur_dim_row(line, out, width);
         panel_row(line, out, width);
     }
     toast_row(line, out, width);
+    if (s_prog.opt[O_FPS]) fps_row(line, out, width);
 }
 
 /* ------------------------------------------------------------------------
@@ -1513,6 +1813,13 @@ int tri_menu_hook(uint32_t pc)
     }
     case TH_LVL_PRE_SPRITES:
         if (level_mode()) { prog_init(); pre_sprites(); }
+        else if (s_assist) assist_end();
+        return 0;
+    case TH_CARRY_INPUT:
+        assist_carry_input();
+        return 0;
+    case TH_TAILS_CPU_FLY:
+        assist_cpu_fly();
         return 0;
     case TH_LVL_POST_SPRITES:
         if (level_mode()) { register_overlay(); post_sprites(); }
@@ -1542,3 +1849,27 @@ int tri_menu_hook(uint32_t pc)
         return 0;
     }
 }
+
+/* ------------------------------------------------------------------------
+ * The title screen's options page (trilogy_title.c): the same settings as
+ * the pause menu's Video and Game pages, in one list.
+ * ---------------------------------------------------------------------- */
+static int title_opt(int i) { return i < N_VIDEO_OPTS ? k_video_opts[i] : k_game_opts[i - N_VIDEO_OPTS]; }
+int tri_opt_count(void) { return N_VIDEO_OPTS + N_GAME_OPTS; }
+const char *tri_opt_label(int i) { return k_opt[title_opt(i)].name; }
+const char *tri_opt_value(int i) { int o = title_opt(i); return k_opt[o].values[s_prog.opt[o]]; }
+const char *tri_opt_desc(int i) { return k_opt[title_opt(i)].desc; }
+void tri_opt_open(void) { prog_init(); sync_live_options(); register_overlay(); }
+void tri_opt_change(int i, int delta)
+{
+    int o = title_opt(i), n = k_opt[o].count;
+    s_prog.opt[o] = (uint8_t)((s_prog.opt[o] + delta + n) % n);
+    apply_live_option(o);
+    s_dirty = 1;
+}
+void tri_opt_close(void) { if (s_dirty) { prog_save(); s_dirty = 0; } }
+/* the menu font, for the title (colours: 0 normal, 1 selected, 2 dim, 3 title, 4 good) */
+void tri_text(uint32_t *out, int row, int x, const char *s, int col, int x1) { text_line(out, row, x, s, col, x1); }
+int tri_text_w(const char *s) { return text_w(s); }
+int tri_text_wrap(const char *s, int cols, int n, char *buf) { return wrap_line(s, cols, n, buf); }
+void tri_overlay_register(void) { register_overlay(); }

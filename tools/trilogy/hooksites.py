@@ -102,6 +102,10 @@ HOOKS = [
     ("TC_DONE",         "loc_2D8DC",             r"^jmp \(Delete_Current_Sprite\)\.l", 'at', 0, 'sk'),
     ("TC_ACTNUM",       "loc_2D716",             r"^move\.w #tiles_to_bytes\(\$53D\),d2", 'at', 0, 'sk'),
     ("TC_ACT",          "Obj_TitleCardAct",      r"^move\.l #Obj_TitleCardElement,\(a0\)", 'at', 0, 'sk'),
+    ("RESULTS_MUSIC",   "Obj_LevelResultsWait",  r"^moveq #signextendB\(mus_GotThroughAct\),d0", 'at', 0, 'sk'),   # (each game's own jingle)
+    ("ENDING_POSE",     "Set_PlayerEndingPose",  r"^move\.b #\$81,object_control\(a1\)", 'at', 0, 'sk'),   # (S1/S2/CD: run off instead)
+    ("RIGHT_BOUND",     "Player_LevelBound",     r"^cmp\.w d1,d0", 'at', 1, 'sk'),
+    ("CARRY_INPUT",     "Tails_FlyingSwimming",  r"^bsr\.w Tails_Carry_Sonic", 'at', 0, 'sk'),   # (Tails, carry me: A flaps)
     ("RESULTS_ACTNUM",  "loc_2DB1C",             r"^move\.w d0,subtype\(a0\)", 'at', 0, 'sk'),
     # oscillators: each game keeps its own baselines/frequencies
     ("OSC_INIT",        "OscillateNumInit",      r"^lea \(Osc_Data\)\.l,a2", 'after', 0, 'sk'),
@@ -120,6 +124,8 @@ HOOKS = [
     ("RING_LAYOUT",     "loc_EB52",              r"^movea\.l \(a1,d0\.w\),a1", 'after', 0, 'sk'),
     # pause menu, achievements, abilities and unlocks (trilogy_menu.c)
     ("PAUSE_CHK",       "Pause_ChkStart",        r"^move\.b \(Ctrl_1_pressed\)\.w,d0", 'at', 0, 'sk'),
+    # the title screen (trilogy_title.c): Sonic 3's title ends once its SEGA logo has faded
+    ("TITLE_TAKEOVER",  "loc_3FF0",              r"^clr\.w \(_unkF660\)\.w", 'at', 0, 'sk'),
     ("GAMELOOP",        "GameLoop",              r"^jsr \(a0\)", 'at', 0, 'sk'),      # native scenes (Sonic 2's ending)
     ("LVL_PRE_SPRITES", "LevelLoop",             r"^jsr \(Process_Sprites\)\.l", 'at', 0, 'sk'),
     ("LVL_POST_SPRITES", "LevelLoop",            r"^tst\.w \(Restart_level_flag\)\.w", 'at', 0, 'sk'),
@@ -132,6 +138,12 @@ HOOKS = [
     ("SUPER_CHK",       "Sonic_CheckTransform",  r"^blo\.s Sonic_InstaShield", 'at', 0, 'sk'),
     ("SUPER_CHK_K",     "Knux_Test_For_Glide",   r"^blo\.s loc_1786C", 'at', 0, 'sk'),      # (the Chaos Emerald count)
     ("SUPER_CHK_T",     "Tails_Test_For_Flight", r"^blo\.s loc_1515C", 'at', 0, 'sk'),      # (the Super Emerald count)
+    ("TAILS_CPU_FLY",   "Tails_Test_For_Flight", r"^beq\.s locret_151A2", 'at', 0, 'sk'),  # (Mania: the CPU flies on Up + jump)
+    ("FLOOR_NEG",       "loc_F2F2",              r"^move\.w d2,d1", 'at', 0, 'sk'),   # (FindFloor: a negative height; Sonic CD:
+    ("FLOOR2_NEG",      "loc_F394",              r"^move\.w d2,d1", 'at', 0, 'sk'),   #  looking down, a full block, flat)
+    ("ROOM_AHEAD_S",    "loc_1137E",             r"^move\.w \(sp\)\+,d0", 'after', 0, 'sk'),   # (the ground's wall ahead, Sonic,
+    ("ROOM_AHEAD_T",    "loc_14BA8",             r"^move\.w \(sp\)\+,d0", 'after', 0, 'sk'),   #  Tails, Knuckles: Sonic CD's tight
+    ("ROOM_AHEAD_K",    "loc_173B0",             r"^move\.w \(sp\)\+,d0", 'after', 0, 'sk'),   #  curves at speed)
     ("MON_SOLID",       "SolidObject_Monitor_SonicKnux", r"^beq\.s locret_1D6BC", 'at', 0, 'sk'),   # (rolling: no solidity)
     # --- palette fades: the extended sprite lines fade step for step with CRAM
     ("PAL_FROMBLACK",   "Pal_FromBlack",         r"^moveq #0,d0", 'at', 0, 'sk'),
@@ -151,6 +163,10 @@ HOOKS = [
     ("STARS_TOUCH",     "loc_2D47E",             r"^move\.b #2,\(Special_bonus_entry_flag\)\.w", 'at', 0, 'sk'),   # S2 starpost stars -> special stage
     ("RENDER_HUD",      "Render_HUD",            r"^cmpi\.b #\$16,\(Current_zone\)\.w", 'at', 0, 'sk'),   # (hidden while recording zone cards)
     ("DS_ZONE_ICON",    "loc_D9A2",              r"^move\.w #tiles_to_bytes", 'at', 0, 'sk'),
+    ("DS_LOOP",         "SaveScreen_MainLoop",   r"^jsr \(Process_Sprites\)\.l", 'at', 0, 'sk'),   # (the new ground retires the title sprite)
+    ("DS_INIT",         "loc_C72C",              r"^jsr \(Init_SpriteTable\)\.l", 'at', 0, 'sk'),   # (... before its first frame)
+    ("SPRING_NEAR",     "sub_2326C",             r"^cmpi\.b #3,anim\(a0\)", 'at', 0, 'sk'),   # (S1/CD sideways springs: push only)
+    ("SOLIDS_SPLIT",    "LoadSolids",            r"^move\.l \(Primary_collision_addr\)\.w,\(Collision_addr\)\.w", 'at', 0, 'sk'),   # (Sonic CD: interleaved)
 ]
 
 

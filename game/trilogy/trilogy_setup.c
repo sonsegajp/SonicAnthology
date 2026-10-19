@@ -1,7 +1,7 @@
 /*
  * trilogy_setup.c — what a plain start needs: the S3K cart (sonic3k.bin) and
  * the trilogy bank built from the player's Sonic 1 and Sonic 2 (trilogy.bin),
- * both beside the executable. Missing either, TrilogyBuilder (our setup:
+ * both beside the executable. Missing either, AnthologyBuilder (our setup:
  * tools/trilogy/builder) is started to make them, and the game closes.
  */
 #include <stdio.h>
@@ -42,17 +42,18 @@ const char *tri_resolve_rom(void)
     if (exists(rom) && exists(beside("trilogy.bin")))
         return rom;
 #ifdef _WIN32
-    const char *builder = beside("TrilogyBuilder.exe");
+    const char *builder = beside("AnthologyBuilder.exe");
+    if (!exists(builder)) builder = beside("TrilogyBuilder.exe");   /* (its name before the rename) */
     if (exists(builder)) {
         ShellExecuteA(NULL, "open", builder, NULL, s_dir, SW_SHOWNORMAL);
     } else {
         MessageBoxA(NULL,
-            "Sonic Trilogy is built from your own Sonic 1, Sonic 2 and Sonic 3 & Knuckles ROMs.\n\n"
-            "Run TrilogyBuilder.exe (beside this game) to set it up.",
-            "Sonic Trilogy", MB_OK | MB_ICONINFORMATION);
+            "Sonic Anthology is built from your own Sonic 1, Sonic 2 and Sonic 3 & Knuckles ROMs.\n\n"
+            "Run AnthologyBuilder.exe (beside this game) to set it up.",
+            "Sonic Anthology", MB_OK | MB_ICONINFORMATION);
     }
 #else
-    fprintf(stderr, "Sonic Trilogy: sonic3k.bin and trilogy.bin are needed beside the game; "
+    fprintf(stderr, "Sonic Anthology: sonic3k.bin and trilogy.bin are needed beside the game; "
                     "run the builder (tools/trilogy/builder) to make them.\n");
 #endif
     return NULL;
