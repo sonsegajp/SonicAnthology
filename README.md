@@ -111,7 +111,7 @@ How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE
 
 ## Playing
 
-1. Download the latest zip from [Releases](../../releases) and unpack it anywhere.
+1. Download the PC zip, **SonicAnthology-v1.1.0.zip** from [v1.1.0](../../releases/tag/v1.1.0), and unpack it anywhere.
 2. Run **AnthologyBuilder.exe** and choose your dumps (it checks them):
 
    | Game | Dump | CRC32 |
@@ -138,7 +138,7 @@ Alt+Enter toggles fullscreen.
 
 <img src="docs/media/android-setup.png" alt="The Android app's setup screen" width="49%"> <img src="docs/media/android-game.png" alt="Green Hill on a phone, with the touch controls" width="49%">
 
-1. Download **SonicAnthology-v*.apk** from [Releases](../../releases) and install it
+1. Download **SonicAnthology-v1.2.0.apk** from [v1.2.0](../../releases/tag/v1.2.0) and install it
    (allow your browser or files app to install apps).
 2. Open Sonic Anthology, tap **CHOOSE DUMPS** and pick your three dumps (choose them
    together or one by one; they are checked the same way). Sonic CD is optional: tap
