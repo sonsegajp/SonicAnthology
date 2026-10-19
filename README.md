@@ -9,14 +9,14 @@ our own C, transcribed from the original games' code.
 - All of Sonic 1 and Sonic 2 (endings included) beside Sonic 3 & Knuckles, from one Data Select
 - Sonic CD, if you have the disc: all seven rounds in every time period, time travel,
   the bosses and Metal Sonic's race, and the UFO special stages, with the disc's own music
-- Optional Sonic Origins player sprites, from your own Sonic Origins install
+- Sonic Origins player sprites as an option (the pack comes with the release)
 - Play any zone as Sonic, Tails or Knuckles, with abilities and achievements to unlock
   (drop dash, peel-out, homing attack; Tails' flight boost; Knuckles' burrow and wall spin dash...)
 - Options: widescreen, CRT filters, background blur, colour filters and more (pause menu)
 
-**No game data is included.** Sonic Anthology is built on your PC from your own
-dumps (and, optionally, your Sonic CD disc and Sonic Origins install) by
-**AnthologyBuilder**.
+**No ROM or disc data is included.** Sonic Anthology is built on your PC from
+your own dumps (and, optionally, your Sonic CD disc) by **AnthologyBuilder**.
+The release does carry the Sonic Origins player sprites pack.
 
 How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE_ZONES_GOT_IN.md).
 
@@ -31,12 +31,12 @@ How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE
    | Sonic the Hedgehog 2 | REV01 (World, Rev A) | `24AB4C3A` |
    | Sonic 3 & Knuckles | the 4 MB lock-on cart, **or** Sonic & Knuckles + Sonic 3 | `63522553` (`0658F691` + `9BC192CE`) |
    | Sonic CD *(optional)* | a BIN/CUE dump of the disc (made with the Japanese release); choose its `.cue` | checked by its files |
-   | Sonic Origins *(optional)* | its install folder (found by itself in Steam's default place) | its `.rsdk` data packs |
+   | Sonic Origins *(optional: its sprites come with the release)* | its install folder, to repack them from your own copy | its `.rsdk` data packs |
 
    It writes `sonic3k.bin`, `trilogy.bin` and the Data Select previews beside the
    game (about 7 minutes with the previews); with Sonic CD also `scd.bin` and
    `scdss.bin` (the game plays the music from your disc image, so leave it where
-   it is), and with Sonic Origins `origins.bin` and `origins_ufo.bin`. Dumps left
+   it is), and with Sonic Origins a fresh `origins.bin` and `origins_ufo.bin`. Dumps left
    beside the game or in a `roms` folder are found automatically. Without Sonic CD
    its zones are simply not offered; add it any time by running the builder again.
 3. Press **Play**, or run **SonicAnthology.exe** from then on.

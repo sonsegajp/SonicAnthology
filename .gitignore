@@ -1,5 +1,6 @@
 # Build output (build/, build_fix/, build-rdb/, …)
 build*/
+!tools/trilogy/builder/
 
 # ROMs — copyrighted, never commit (CRC 9BC192CE; see segagenesisrecomp memory)
 *.bin
