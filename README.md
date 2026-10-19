@@ -12,7 +12,95 @@ our own C, transcribed from the original games' code.
 - Sonic Origins player sprites as an option (the pack comes with the release)
 - Play any zone as Sonic, Tails or Knuckles, with abilities and achievements to unlock
   (drop dash, peel-out, homing attack; Tails' flight boost; Knuckles' burrow and wall spin dash...)
-- Options: widescreen, CRT filters, background blur, colour filters and more (pause menu)
+- Tails Assist, as in Sonic Mania: Tails flies in and carries Sonic
+- Options: widescreen, smooth rotation, background blur, CRT filters, colour filters and more (pause menu)
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/title.png" alt="Title screen"></td>
+    <td width="50%"><img src="docs/media/data-select.png" alt="Data Select"></td>
+  </tr>
+  <tr>
+    <td align="center">Title screen</td>
+    <td align="center">Data Select, with zone previews</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/s1-green-hill.png" alt="Sonic 1: Green Hill Zone"></td>
+    <td><img src="docs/media/s2-casino-night.png" alt="Sonic 2: Casino Night Zone"></td>
+  </tr>
+  <tr>
+    <td align="center">Sonic 1: Green Hill, Sonic and Tails</td>
+    <td align="center">Sonic 2: Casino Night, as Knuckles</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/cd-palmtree-panic.png" alt="Sonic CD: Palmtree Panic"></td>
+    <td><img src="docs/media/cd-collision-chaos.png" alt="Sonic CD: Collision Chaos"></td>
+  </tr>
+  <tr>
+    <td align="center">Sonic CD: Palmtree Panic</td>
+    <td align="center">Sonic CD: Collision Chaos, with Amy</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/cd-stardust-speedway.png" alt="Sonic CD: Stardust Speedway, the race with Metal Sonic"></td>
+    <td><img src="docs/media/cd-metallic-madness.png" alt="Sonic CD: Metallic Madness"></td>
+  </tr>
+  <tr>
+    <td align="center">Sonic CD: the race with Metal Sonic</td>
+    <td align="center">Sonic CD: Metallic Madness</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/cd-ufo-stage.png" alt="Sonic CD: UFO special stage"></td>
+    <td><img src="docs/media/s2-special-stage.png" alt="Sonic 2: special stage"></td>
+  </tr>
+  <tr>
+    <td align="center">Sonic CD's UFO special stages</td>
+    <td align="center">Sonic 2's half-pipe special stages</td>
+  </tr>
+</table>
+
+### Smooth rotation
+
+The player tilts to the exact slope, around loops too (Options → Rotation → Smooth).
+Classic on the left, smooth on the right, at half speed:
+
+![Classic and smooth rotation through Green Hill's loop](docs/media/smooth-rotation.gif)
+
+[Watch it as a video (WebM)](docs/media/smooth-rotation.webm)
+
+### Player sprites
+
+Draw the players, monitors and star posts with Sonic Origins' sprites from any of the four
+games (Options → Player Sprites):
+
+<table>
+  <tr>
+    <td><img src="docs/media/sprites-sonic1.png" alt="Sonic 1 sprites"></td>
+    <td><img src="docs/media/sprites-sonic2.png" alt="Sonic 2 sprites"></td>
+    <td><img src="docs/media/sprites-soniccd.png" alt="Sonic CD sprites"></td>
+    <td><img src="docs/media/sprites-sonic3.png" alt="Sonic 3 sprites"></td>
+  </tr>
+  <tr>
+    <td align="center">Sonic 1</td>
+    <td align="center">Sonic 2</td>
+    <td align="center">Sonic CD</td>
+    <td align="center">Sonic 3</td>
+  </tr>
+</table>
+
+### Tails Assist
+
+Playing as Sonic with Tails, jump, then press Up + jump in the air: Tails takes off
+after you and catches you, as in Sonic Mania. While carried, the d-pad steers and jump
+flaps; Down + jump lets go. Tails tires after eight seconds.
+
+<img src="docs/media/tails-assist.png" alt="Tails carrying Sonic through Green Hill" width="60%">
+
+### Background blur
+
+Soften the far background like a camera focused on the action (Options → Background Blur).
+Off on the left, high on the right:
+
+![Background blur off and high](docs/media/background-blur.png)
 
 **No ROM or disc data is included.** Sonic Anthology is built on your PC from
 your own dumps (and, optionally, your Sonic CD disc) by **AnthologyBuilder**.
