@@ -1,0 +1,95 @@
+apply plugin: 'com.android.application'
+apply plugin: 'com.chaquo.python'
+
+def anthologyVersion = '1.2.0'
+
+// Release signing: android/keystore.properties (never committed) names the
+// keystore and its passwords; without it the release APK is left unsigned
+def ksFile = rootProject.file('keystore.properties')
+def ks = new Properties()
+if (ksFile.exists()) ksFile.withInputStream { ks.load(it) }
+
+android {
+    namespace 'io.github.sonsegajp.anthology'
+    compileSdk 34
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'io.github.sonsegajp.anthology'
+        minSdk 24
+        targetSdk 34
+        versionCode 10200
+        versionName anthologyVersion
+        ndk { abiFilters(*project.property('abis').split(',')) }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static', '-DCMAKE_BUILD_TYPE=Release',
+                          "-DANTHOLOGY_VERSION=${anthologyVersion}"
+                abiFilters(*project.property('abis').split(','))
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (ksFile.exists()) {
+                storeFile file(ks['storeFile'])
+                storePassword ks['storePassword']
+                keyAlias ks['keyAlias']
+                keyPassword ks['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release' } }
+        }
+        release {
+            minifyEnabled false
+            if (ksFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'jni/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+}
+
+// The in-app builder: AnthologyBuilder's converters, run by Chaquopy's Python
+// (Pillow is the one package they need beyond the standard library)
+chaquopy {
+    defaultConfig {
+        version '3.10'
+        pip { install 'pillow' }
+    }
+}
+
+// The APK's assets: builder/ (tools/trilogy, unpacked to the app's files: the
+// converters read their data as files) and game/ (the title art and the Sonic
+// Origins sprites pack, unpacked beside the game). The sprites pack is never in
+// the repository: originsDir is a folder holding origins.bin and
+// origins_ufo.bin (a release stage, or a PC build that packed them)
+def repo = rootProject.file('..')
+def assetStage = "${buildDir}/anthologyAssets"
+tasks.register('anthologyAssets', Sync) {
+    into assetStage
+    from(new File(repo, 'tools/trilogy')) {
+        include '*.py', 'data/**'
+        into 'builder'
+    }
+    from(new File(repo, 'tools/trilogy/builder')) {
+        include 'trilogy_builder.py', 'android_entry.py'
+        into 'builder/builder'
+    }
+    from(new File(repo, 'game/trilogy/assets')) { into 'game/assets/trilogy' }
+    from(rootProject.file(project.property('originsDir'))) {
+        include 'origins.bin', 'origins_ufo.bin'
+        into 'game'
+    }
+}
+android.sourceSets.main.assets.srcDirs += assetStage
+preBuild.dependsOn 'anthologyAssets'

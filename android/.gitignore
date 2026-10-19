@@ -1,0 +1,14 @@
+# Android build outputs and fetched/generated inputs
+.gradle/
+build/
+app/build/
+app/.cxx/
+external/
+generated/
+local.properties
+*.apk
+*.aab
+keystore.properties
+*.jks
+# SDL's Java glue: copied in from SDL's source by tools/setup_deps.py
+app/src/main/java/org/

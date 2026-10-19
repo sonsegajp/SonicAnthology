@@ -1,0 +1,19 @@
+// Sonic Anthology for Android
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://chaquo.com/maven' }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath 'com.chaquo.python:gradle:16.0.0'   // Python for the in-app builder
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}

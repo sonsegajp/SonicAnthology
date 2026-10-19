@@ -13,6 +13,7 @@ our own C, transcribed from the original games' code.
 - Play any zone as Sonic, Tails or Knuckles, with abilities and achievements to unlock
   (drop dash, peel-out, homing attack; Tails' flight boost; Knuckles' burrow and wall spin dash...)
 - Tails Assist, as in Sonic Mania: Tails flies in and carries Sonic
+- On PC (Windows) and Android, with touch controls
 - Options: widescreen, smooth rotation, background blur, CRT filters, colour filters and more (pause menu)
 
 <table>
@@ -132,6 +133,24 @@ How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE
 Saves (`sonic3k.srm`), progress (`trilogy-progress.ini`) and settings
 (`settings.ini`, including the controls) stay beside the game. F11 or
 Alt+Enter toggles fullscreen.
+
+## Android
+
+<img src="docs/media/android-setup.png" alt="The Android app's setup screen" width="49%"> <img src="docs/media/android-game.png" alt="Green Hill on a phone, with the touch controls" width="49%">
+
+1. Download **SonicAnthology-v*.apk** from [Releases](../../releases) and install it
+   (allow your browser or files app to install apps).
+2. Open Sonic Anthology, tap **CHOOSE DUMPS** and pick your three dumps (choose them
+   together or one by one; they are checked the same way). Sonic CD is optional: tap
+   **SONIC CD** and choose the folder holding its `.cue` and `.bin` files (they are
+   copied into the app, about 600 MB).
+3. Tap **BUILD** (a few minutes on a phone), then **PLAY**.
+
+The touch controls can be resized or turned off in Options → Touch Controls; a
+Bluetooth or USB controller works too, and Back opens the pause menu. Needs Android
+7.0 or later on a 64-bit ARM device. The Data Select's zone previews are a PC
+builder extra: on Android its slots show static. Building it yourself:
+[android/README-android.md](android/README-android.md).
 
 ## Building from source
 

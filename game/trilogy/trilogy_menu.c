@@ -12,6 +12,9 @@
  */
 #include "trilogy_obj.h"
 #include "sonic3_video.h"
+#ifdef GENESIS_TOUCH_OVERLAY
+#include "touch_overlay.h"                  /* (runner: the on-screen pad) */
+#endif
 #include <SDL.h>
 #include <math.h>
 #include <stdio.h>
@@ -105,7 +108,7 @@ static const struct { const char *name, *desc; int unlock; } k_ach[A_COUNT] = {
 
 /* saved by index: new options go at the end */
 enum { O_BLUR, O_DIM, O_POPUPS, O_BRIGHT, O_SAT, O_FILTER, O_DITHER, O_WIDE, O_FULL, O_SPECIAL, O_BGBLUR, O_CRT,
-       O_ROTATE, O_SCALE, O_PIXEL, O_FPS, O_VSYNC, O_INTERP, O_SPRITES, O_COUNT };
+       O_ROTATE, O_SCALE, O_PIXEL, O_FPS, O_VSYNC, O_INTERP, O_SPRITES, O_TOUCH, O_COUNT };
 static const char *const k_dim[] = { "OFF", "LOW", "HIGH" };
 static const char *const k_bgblur[] = { "OFF", "LOW", "MEDIUM", "HIGH" };
 static const char *const k_crt[] = { "OFF", "SCANLINES", "PVM", "ARCADE", "TV" };
@@ -119,6 +122,7 @@ static const char *const k_scale[] = { "DEFAULT", "SHARP", "SMOOTH", "CRISP" };
 static const char *const k_vsync[] = { "AUTO", "ON", "OFF" };
 static const char *const k_interp[] = { "OFF", "120HZ", "144HZ", "DISPLAY" };
 static const char *const k_sprites[] = { "SONIC 1", "SONIC 2", "SONIC CD", "SONIC 3" };
+static const char *const k_touch[] = { "OFF", "SMALL", "MEDIUM", "LARGE" };
 static const struct { const char *name, *desc; const char *const *values; int count; } k_opt[O_COUNT] = {
     { "PAUSE BLUR",       "BLUR THE GAME BEHIND THE PAUSE MENU.",   k_onoff, 2 },
     { "PAUSE DIM",        "DARKEN THE GAME BEHIND THE PAUSE MENU.", k_dim, 3 },
@@ -139,9 +143,14 @@ static const struct { const char *name, *desc; const char *const *values; int co
     { "VSYNC",            "AUTO SYNCS ONLY 60HZ SCREENS. FASTER SCREENS ARE PACED BY THE GAME.", k_vsync, 3 },
     { "SMOOTH MOTION",    "DRAW IN BETWEEN FRAMES FOR FAST SCREENS. ADDS A FRAME OF DELAY.", k_interp, 4 },
     { "PLAYER SPRITES",   "WHICH GAME'S SONIC ORIGINS SPRITES DRAW THE PLAYERS. THE BUILDER PACKS THEM FROM YOUR OWN COPY.", k_sprites, 4 },
+    { "TOUCH CONTROLS",   "THE ON-SCREEN PAD: ITS SIZE, OR OFF. A PAD OR KEYBOARD HIDES IT TILL THE SCREEN IS TOUCHED AGAIN.", k_touch, 4 },
 };
 static const int k_video_opts[] = { O_BLUR, O_DIM, O_BRIGHT, O_SAT, O_FILTER, O_DITHER, O_BGBLUR, O_ROTATE, O_SPRITES, O_CRT,
-                                    O_SCALE, O_PIXEL, O_VSYNC, O_INTERP, O_WIDE, O_FULL, O_FPS };
+                                    O_SCALE, O_PIXEL, O_VSYNC, O_INTERP, O_WIDE, O_FULL, O_FPS 
+#ifdef GENESIS_TOUCH_OVERLAY
+                                    , O_TOUCH          /* (the on-screen pad: phones and tablets) */
+#endif
+                                    };
 static const int k_game_opts[] = { O_POPUPS, O_SPECIAL };
 #define N_VIDEO_OPTS ((int)(sizeof k_video_opts / sizeof k_video_opts[0]))
 #define N_GAME_OPTS  ((int)(sizeof k_game_opts / sizeof k_game_opts[0]))
@@ -203,6 +212,7 @@ static void prog_load(void)
     if (loaded) return;
     loaded = 1;
     s_prog.opt[O_SPRITES] = 3;                       /* (Sonic 3's sprites unless chosen otherwise) */
+    s_prog.opt[O_TOUCH] = 2;                         /* (the on-screen pad at its medium size) */
     prog_path();
     FILE *f = fopen(s_path, "r");
     if (!f) return;
@@ -260,6 +270,10 @@ static void apply_present_options(void)
     { static const int hz[4] = { 0, 120, 144, -1 }; genesis_present_set_interpolation(hz[s_prog.opt[O_INTERP] & 3]); }
     s3_video_set_bg_blur(s_prog.opt[O_BGBLUR]);
     s3_video_set_rotation(s_prog.opt[O_ROTATE]);
+#ifdef GENESIS_TOUCH_OVERLAY
+    { static const float size[4] = { 1.0f, 0.8f, 1.0f, 1.25f };
+      touch_overlay_configure(s_prog.opt[O_TOUCH] != 0, size[s_prog.opt[O_TOUCH] & 3]); }
+#endif
 }
 
 static void prog_init(void)
@@ -1239,7 +1253,7 @@ static void apply_live_option(int o)
     if (o == O_WIDE || o == O_BGBLUR || o == O_ROTATE || o == O_INTERP) {
         sonic3_video.configure(video_mode());
         apply_present_options();
-    } else if (o == O_CRT || o == O_SCALE || o == O_PIXEL || o == O_VSYNC) {
+    } else if (o == O_CRT || o == O_SCALE || o == O_PIXEL || o == O_VSYNC || o == O_TOUCH) {
         apply_present_options();
     } else if (o == O_FULL) {
         SDL_Window *w = game_window();

@@ -28,8 +28,11 @@ import traceback
 import zlib
 from pathlib import Path
 
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+except ImportError:                                 # (Android: the app is the window, headless() the build)
+    tk = None
 
 FROZEN = getattr(sys, 'frozen', False)
 TOOLS = Path(sys._MEIPASS) / 'trilogy' if FROZEN else Path(__file__).resolve().parents[1]
@@ -100,7 +103,7 @@ class Log(object):
         pass
 
 
-class Builder(tk.Tk):
+class Builder(tk.Tk if tk else object):
     ROWS = [('s1', 'Sonic the Hedgehog'), ('s2', 'Sonic the Hedgehog 2'),
             ('s3k', 'Sonic 3 & Knuckles'), ('s3', 'Sonic 3 (only with Sonic & Knuckles alone)')]
     CD_ROW = 5                                      # (Sonic CD: optional, its disc's CUE)
@@ -409,7 +412,7 @@ def build_origins(folder, s3k_path, tmp):
 def headless(argv):
     """AnthologyBuilder --s1 X --s2 Y --s3k Z [--sk A --s3 B] [--scd CUE] [--origins DIR]
     [--no-previews]: no window; the log goes to builder.log beside the game."""
-    with open(GAME_DIR / 'builder.log', 'w') as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+    with open(GAME_DIR / 'builder.log', 'w', buffering=1) as f, contextlib.redirect_stdout(f),             contextlib.redirect_stderr(f):                  # (line by line: the Android app shows it as it goes)
         carts = {}
         for k in ('s1', 's2', 's3k', 'sk', 's3'):
             if '--' + k in argv:
