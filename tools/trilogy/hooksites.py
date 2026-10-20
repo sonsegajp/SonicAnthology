@@ -166,6 +166,14 @@ HOOKS = [
     ("DS_LOOP",         "SaveScreen_MainLoop",   r"^jsr \(Process_Sprites\)\.l", 'at', 0, 'sk'),   # (the new ground retires the title sprite)
     ("DS_INIT",         "loc_C72C",              r"^jsr \(Init_SpriteTable\)\.l", 'at', 0, 'sk'),   # (... before its first frame)
     ("SPRING_NEAR",     "sub_2326C",             r"^cmpi\.b #3,anim\(a0\)", 'at', 0, 'sk'),   # (S1/CD sideways springs: push only)
+    ("SPRING_UP",       "loc_22FAE",             r"^move\.w \$30\(a0\),y_vel\(a1\)", 'at', 0, 'sk'),   # (S1/CD up springs let go once fired)
+    ("SPRING_UP_SOLID", "Obj_Spring_Up",         r"^move\.w #\$1B,d1", 'at', 0, 'sk'),   # (... and are not solid while they bounce)
+    ("SPRING_DIAG",     "loc_23542",             r"^bset #Status_InAir,status\(a1\)", 'at', 0, 'sk'),   # (CD diagonal springs: the same)
+    ("SPRING_DIAG_SOLID", "Obj_Spring_UpDiag",   r"^move\.w #\$1B,d1", 'at', 0, 'sk'),
+    ("SPRING_SIDE_P1",  "loc_23088",             r"^andi\.b #1,d1", 'at', 0, 'sk'),   # (S1/CD sideways springs: pushed from either side)
+    ("SPRING_SIDE_P2",  "loc_230BA",             r"^andi\.b #1,d1", 'at', 0, 'sk'),
+    ("SPRING_SIDE_GV",  "loc_231BE",             r"^move\.w x_vel\(a1\),ground_vel\(a1\)", 'after', 0, 'sk'),   # (... the way they point on a ceiling too)
+    ("ENDSIGN_FALL",    "Obj_EndSignFall",       r"^move\.b \(V_int_run_count\+3\)\.w,d0", 'at', 0, 'sk'),   # (S3K's own signs: stood up, no fall)
     ("SOLIDS_SPLIT",    "LoadSolids",            r"^move\.l \(Primary_collision_addr\)\.w,\(Collision_addr\)\.w", 'at', 0, 'sk'),   # (Sonic CD: interleaved)
 ]
 
@@ -239,7 +247,7 @@ SYMS = [
     "DrawTilesAsYouMove", "Draw_TileColumn", "Draw_TileRow", "PlainDeformation",
     "ApplyDeformation", "Load_PLC", "LoadPalette", "Queue_Kos_Module", "Add_To_DMA_Queue",
     "Draw_Sprite", "Delete_Current_Sprite", "MoveSprite", "MoveSprite2", "ObjectFall",
-    "AllocateObject", "AllocateObjectAfterCurrent", "Animate_Sprite", "Sprite_OnScreen_Test",
+    "AllocateObject", "AllocateObjectAfterCurrent", "Animate_Sprite", "Ani_Spring", "CalcRoomOverHead", "Map_EndSigns", "PLCPtr_EndSigns", "AniRaw_EndSigns1", "AniRaw_EndSigns2", "Child1_EndSignStub", "CreateChild1_Normal", "Perform_DPLC", "PLC_EndSignStuff", "Obj_SignpostStub", "Go_Delete_Sprite", "Sprite_OnScreen_Test",
     "Play_SFX", "Play_Music", "Obj_TitleCard", "Obj_Ring", "Obj_Monitor", "Obj_Spring",
     "Obj_Spikes", "Obj_StarPost", "Obj_PathSwap", "Obj_EndSign", "Obj_EggCapsule",
     "Obj_SSEntryRing", "SolidObjectFull", "SolidObjectTop", "Touch_ChkHurt", "HurtCharacter",

@@ -391,7 +391,7 @@ void s1_seesaw_land(uint32_t board, uint32_t ball, uint8_t d1, int half)
     int16_t vy = (int16_t)-OBS16(ball, OBJ_y_vel);
     if (half && OB8(board, OBJ_frame) == 1) vy >>= 1;
     launch_players(board, vy, 1);
-    o_sfx(0xB1);                               /* sfx_Spring */
+    o_sfx_s1(0xCC);                               /* sfx_Spring */
 }
 
 static void seesaw(uint32_t o)
@@ -565,7 +565,7 @@ static void bomb(uint32_t o)
             if ((int16_t)OB16(o, BOM_TIME) < 0) {
                 SET32(o, OBJ_code, S3K_Obj_Explosion);   /* id_Explosion ($3F: no animal) */
                 SET8(o, OBJ_routine, 6);
-                o_sfx(0xB4);                             /* sfx_Bomb */
+                o_sfx_s1(0xC4);                             /* sfx_Bomb */
                 return;
             }
             break;

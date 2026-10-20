@@ -379,6 +379,9 @@ static int s_wd, s_wrev, s_wspd, s_wacc;   /* Knuckles' wall spin dash: 1 revvin
 static int s_homing;               /* homing dive in progress */
 static uint32_t s_home_target, s_home_code;
 static int s_home_time, s_home_bounce;
+#define LOCK_FRAMES 8
+static uint32_t s_lock, s_lock_code;    /* the target being locked on (lock_update), its code */
+static int s_lock_t;                    /* frames since; LOCK_FRAMES: locked */
 
 #define HOMING_SPEED 0x900
 
@@ -412,6 +415,7 @@ static void level_entry(void)
     s_frames = 0;
     s_hit = 0;
     s_dd = s_po = s_homing = s_home_bounce = 0;
+    s_lock = 0; s_lock_t = 0;
     s_dig = s_dig_time = s_boost_cd = s_wd = 0;
     s_prev_air = s_prev_jumping = 0;
     s_rings_given = 0;
@@ -774,8 +778,32 @@ static void moves_post(void)
     }
 }
 
-/* Homing Attack first: a press that has a target is taken before Sonic's own
- * code makes it the insta-shield (which the next press, without one, still is) */
+/* Lock-on: in the air from a jump, the nearest target gets the green
+ * reticle, closing in over LOCK_FRAMES; locked, a beep, and only then may
+ * the Homing Attack go for it (frame_overlay draws the reticle) */
+
+static void lock_update(void)
+{
+    uint32_t p = RAM_Player_1, t = 0;
+    if (on(U_HOMING) && OB8(p, P_CHAR) == 0 && OB8(p, P_ROUTINE) == 2 && !OB8(p, P_OBJCTRL)
+        && (OB8(p, OBJ_status) & 2) && OB8(p, P_JUMPING) && !s_homing && !OB8(p, P_DJUMP)
+        && !(OB8(p, P_STATUS2) & 0x70) && !r8(RAM_Super_Sonic_Knux_flag) && !r16(RAM_Game_paused))
+        t = homing_target(p);
+    if (t != s_lock || (t && r32(t) != s_lock_code)) {
+        s_lock = t;
+        s_lock_code = t ? r32(t) : 0;
+        s_lock_t = 0;
+        return;
+    }
+    if (t && s_lock_t < LOCK_FRAMES && ++s_lock_t == LOCK_FRAMES)
+        o_sfx(0x5B);                        /* (locked: sfx_Switch, the tally's blip in every set) */
+}
+
+static uint32_t locked_target(void) { return s_lock && s_lock_t >= LOCK_FRAMES ? s_lock : 0; }
+
+/* Homing Attack first: a press that has a locked target is taken before
+ * Sonic's own code makes it the insta-shield (which a press without one,
+ * the reticle not yet closed in, still is) */
 static int s_home_req;
 static void homing_pre(void)
 {
@@ -785,7 +813,7 @@ static void homing_pre(void)
     uint8_t pressed = r8(RAM_Ctrl_1 + 1);
     if (!(pressed & BTN_JUMP) || !(OB8(p, OBJ_status) & 2) || !OB8(p, P_JUMPING) || !s_prev_air) return;
     if (OB8(p, P_DJUMP) || (OB8(p, P_STATUS2) & 0x70) || r8(RAM_Super_Sonic_Knux_flag)) return;
-    if (!homing_target(p)) return;
+    if (!locked_target()) return;
     w8(RAM_Ctrl_1 + 1, (uint8_t)(pressed & ~BTN_JUMP));        /* (no insta-shield this time) */
     s_home_req = 1;
 }
@@ -928,6 +956,7 @@ static void assist_carry_input(void)
 static void pre_sprites(void)
 {
     assist_pre();
+    lock_update();
     homing_pre();
     moves_pre();
     peel_pre();
@@ -1068,7 +1097,7 @@ static void post_sprites(void)
     /* ---- Sonic's abilities (second jump press; shields keep their own moves) ---- */
     int sonic = OB8(p, P_CHAR) == 0 && OB8(p, P_ROUTINE) == 2 && !OB8(p, P_OBJCTRL);
     if (sonic && air && jumping && s_prev_air && ((pressed & BTN_JUMP) || s_home_req) && !(OB8(p, P_STATUS2) & 0x70)) {
-        uint32_t t = on(U_HOMING) ? homing_target(p) : 0;
+        uint32_t t = on(U_HOMING) ? locked_target() : 0;
         if (t) {
             if (getenv("TRILOGY_MOVELOG"))                     /* development */
                 fprintf(stderr, "[HOMING] char %d obj %06X\n", OB8(p, P_CHAR), t);
@@ -1555,11 +1584,15 @@ static void blur_dim_row(int line, uint32_t *out, int width)
 {
     if (width != s_hb_w) {
         free(s_hb);
-        s_hb = (uint32_t *)calloc((size_t)width * 224, sizeof *s_hb);
+        s_hb = (uint32_t *)calloc((size_t)width * 480, sizeof *s_hb);   /* (a taller screen's rows too) */
         s_hb_w = s_hb ? width : 0;
         if (!s_hb) return;
     }
-    if (line < 0 || line >= 224) return;
+    int top, bottom;
+    s3_video_canvas_rows(&top, &bottom);
+    int rows = 224 + top + bottom;
+    line += top;                                      /* (the canvas row) */
+    if (line < 0 || line >= rows) return;
     /* horizontal box blur (radius 3) of this clean row */
     uint32_t *h = s_hb + (size_t)line * width;
     for (int x = 0; x < width; x++) {
@@ -1581,7 +1614,7 @@ static void blur_dim_row(int line, uint32_t *out, int width)
             int r = 0, g = 0, b = 0, n = 0;
             for (int k = -3; k <= 3; k++) {
                 int L = line + k;
-                if (L < 0 || L >= 224) continue;
+                if (L < 0 || L >= rows) continue;
                 uint32_t v = s_hb[(size_t)L * width + x];
                 r += (v >> 16) & 255; g += (v >> 8) & 255; b += v & 255; n++;
             }
@@ -1595,6 +1628,9 @@ static void blur_dim_row(int line, uint32_t *out, int width)
 
 static void panel_row(int line, uint32_t *out, int width)
 {
+    int top, bottom;
+    s3_video_canvas_rows(&top, &bottom);
+    line += top;                                      /* (from the canvas's top) */
     int x0 = width - PANEL_W;
     if (x0 < 0) x0 = 0;
     /* panel: darker glass with a light edge, sliding in */
@@ -1713,6 +1749,41 @@ static void panel_row(int line, uint32_t *out, int width)
     }
 }
 
+/* The Homing Attack's reticle (lock_update): a green ring and four ticks
+ * pointing in, closing in from wide over the lock-on frames and turning;
+ * locked, bright. On the target, in the game's own pixels */
+static void reticle_row(int line, uint32_t *out, int width)
+{
+    uint32_t t = s_lock;
+    if (!t || r32(t) != s_lock_code || !level_mode()) return;
+    int cx = (int16_t)OB16(t, OBJ_x_pos) - (int16_t)r16(RAM_Camera_X_pos) + (width - 320) / 2;   /* (widescreen: the camera's 320 centred) */
+    int cy = (int16_t)OB16(t, OBJ_y_pos) - (int16_t)r16(RAM_Camera_Y_pos);
+    int k = s_lock_t > LOCK_FRAMES ? LOCK_FRAMES : s_lock_t;
+    float r = 15.0f + (float)(LOCK_FRAMES - k) * 4.0f;
+    int dy = line - cy, reach = (int)r + 10;
+    if (dy < -reach || dy > reach) return;
+    int locked = k >= LOCK_FRAMES;
+    uint32_t green = locked ? 0x40FF50 : 0x28B838, dark = 0x002808;
+    float spin = (float)(r16(RAM_Level_frame_counter) & 0x7F) * (6.2831853f / 128.0f);
+    float tx[4], ty[4];
+    for (int q = 0; q < 4; q++) { tx[q] = cosf(spin + q * 1.5707963f); ty[q] = sinf(spin + q * 1.5707963f); }
+    for (int x = cx - reach; x <= cx + reach; x++) {
+        if (x < 0 || x >= width) continue;
+        float fx = (float)(x - cx), fy = (float)dy, d = sqrtf(fx * fx + fy * fy);
+        float ring = fabsf(d - r);                       /* (the ring: 2 px, a dark edge either side) */
+        float best = ring < 1.0f ? 0 : ring < 2.0f ? 1 : 9;
+        for (int q = 0; q < 4; q++) {                    /* (the ticks: r+3 .. r+9 along each angle) */
+            float along = fx * tx[q] + fy * ty[q], across = fabsf(-fx * ty[q] + fy * tx[q]);
+            if (along < r + 3 || along > r + 9) continue;
+            float w = 0.4f + (along - (r + 3)) * 0.35f;  /* (wider outwards: an arrow at the ring) */
+            float e = across - w;
+            if (e < 0) best = 0; else if (e < 1 && best > 1) best = 1;
+        }
+        if (best == 0) out[x] = green;
+        else if (best == 1) out[x] = mix(out[x], dark, 2, 3);
+    }
+}
+
 static void toast_row(int line, uint32_t *out, int width)
 {
     if (s_toast_ach < 0 || !s_toast_time) return;
@@ -1720,7 +1791,9 @@ static void toast_row(int line, uint32_t *out, int width)
     int w = text_w(name) + 20;
     if (w < 120) w = 120;
     int in = s_toast_time > 225 ? (240 - s_toast_time) : s_toast_time < 15 ? s_toast_time : 15;
-    int x0 = width - in * w / 15, y0 = 8;
+    int x0 = width - in * w / 15, y0 = 8, top, bottom;
+    s3_video_canvas_rows(&top, &bottom);
+    line += top;                                      /* (from the canvas's top) */
     if (line < y0 || line >= y0 + 26) return;
     for (int x = x0 < 0 ? 0 : x0; x < width; x++) out[x] = mix(out[x], 0x000010, 3, 4);
     if (x0 >= 0 && x0 < width) out[x0] = 0x4060C0;
@@ -1779,6 +1852,9 @@ static void fps_row(int line, uint32_t *out, int width)
         s_count++;
         if (now - s_t0 >= 1000) { s_fps = (int)((s_count * 1000u + (now - s_t0) / 2) / (now - s_t0)); s_count = 0; s_t0 = now; }
     }
+    int top, bottom;
+    s3_video_canvas_rows(&top, &bottom);
+    line += top;                                      /* (from the canvas's top) */
     if (!s_fps || line < 4 || line >= 12) return;
     char buf[16];
     snprintf(buf, sizeof buf, "%d FPS", s_fps);
@@ -1797,6 +1873,7 @@ static void frame_overlay(int line, uint32_t *out, int width)
         extern void tri_scdss_overlay(int line, uint32_t *out, int width);
         tri_scdss_overlay(line, out, width);                     /* (Sonic CD's UFO stages: pillarboxed) */
     }
+    reticle_row(line, out, width);
     video_fx(out, width);
     if (s_open && r16(RAM_Game_paused)) {
         blur_dim_row(line, out, width);

@@ -336,7 +336,7 @@ static void ledge_fragment(uint32_t o)
         SET8(a1, OBJ_height_px, 0x10);
         SET8(a1, LG_TIME, ledge_data1[i]);
     }
-    o_sfx(0x59);   /* sfx_Collapse */
+    o_sfx_s1(0xB9);   /* sfx_Collapse */
 }
 
 static void ledge(uint32_t o)
@@ -449,7 +449,7 @@ static void smash_wall(uint32_t o)
                 SET16(a1, OBJ_x_vel, tab[k * 2]);
                 SET16(a1, OBJ_y_vel, tab[k * 2 + 1]);
             }
-            o_sfx(0x59);      /* sfx_WallSmash (S3K: collapse, as its breakable walls) */
+            o_sfx_s1(0xCB);      /* sfx_WallSmash */
             {   extern void tri_ach_wall_broken(void); tri_ach_wall_broken(); }   /* (Knuckles' Rock Breaker) */
             return;
         }
@@ -486,7 +486,7 @@ static void spikes_move(uint32_t o)
     if (OB16(o, SP_WAIT)) {
         SET16(o, SP_WAIT, OB16(o, SP_WAIT) - 1);
         if (!OB16(o, SP_WAIT) && (OB8(o, OBJ_render) & 0x80))
-            o_sfx(0x52);     /* sfx_SpikeMove */
+            o_sfx_s1(0xB6);     /* sfx_SpikeMove */
     } else if (OB16(o, SP_DIR)) {
         int v = (int)OB16(o, SP_OFF) - 0x800;
         if (v < 0) { v = 0; SET16(o, SP_DIR, 0); SET16(o, SP_WAIT, 60); }

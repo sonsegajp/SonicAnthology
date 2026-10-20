@@ -8,12 +8,13 @@
  * the game's PSG volume envelopes (S1 9, S2 13) are pointed into S3K
  * envelope slots that no S3K sound effect or trilogy-level jingle uses.
  * Any S3K level restores the driver's own entries.
- * Sound effects: the Sonic 2 and Sonic CD sound sets, swapped into the
- * driver while their game's zones and scenes run (below).
+ * Sound effects: the Sonic 1, Sonic 2 and Sonic CD sound sets, swapped into
+ * the driver while their game's zones and scenes run (below).
  */
 #define TRILOGY_INTERNAL 1
 #include "trilogy.h"
 #include "genesis_machine.h"
+#include "scd.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,7 +160,8 @@ void tri_music_zone(void)
     if (e) tri_music_play(TRI_SLOT_ZONE, tri_rd8(e + TD_MUSIC));
 }
 
-/* Sound sets: Sonic 2's (tools/trilogy/s2_sfx.py, trilogy.bin) while a Sonic 2
+/* Sound sets: Sonic 1's (tools/trilogy/s1_sfx.py, trilogy.bin) while a Sonic 1
+ * zone runs, Sonic 2's (tools/trilogy/s2_sfx.py, trilogy.bin) while a Sonic 2
  * zone or scene runs, Sonic CD's (tools/trilogy/scd_sfx.py, scd.bin: placed by
  * trilogy_core.c) while a Sonic CD level, its time warp or its special stage
  * does. The driver's three SFX bank switches (`ld a,$1F` then the bank register
@@ -172,7 +174,7 @@ void tri_music_zone(void)
 #define Z80_SFX_PTRS      0x167Eu   /* z80_SFXPointers, from sfx $33 */
 #define SFX_COUNT         (0xDF - 0x33 + 1)
 #define SND_BANK_BYTE     0x1F      /* zmake68kBank($F8000) */
-enum { SET_S3K, SET_S2, SET_CD };
+enum { SET_S3K, SET_S2, SET_CD, SET_S1 };
 
 static uint8_t s_sfx_saved[SFX_COUNT * 2];   /* S3K's table */
 static int s_set_now;                        /* the set the driver has */
@@ -181,9 +183,9 @@ static int s_set_want;                       /* the set the game wants (put back
 static uint32_t set_blob(int set)
 {
     uint32_t b = 0;
-    if (set == SET_S2) {
+    if (set == SET_S2 || set == SET_S1) {
         uint32_t t = tri_rd32(TRI_BANK_BASE + TB_BLOBS);
-        b = t ? tri_rd32(t + TRI_BLOB_S2_SFX * 4u) : 0;
+        b = t ? tri_rd32(t + (set == SET_S2 ? TRI_BLOB_S2_SFX : TRI_BLOB_S1_SFX) * 4u) : 0;
     } else if (set == SET_CD)
         b = tri_scd_sound();
     return b && tri_rd8(b) ? b : 0;
@@ -206,7 +208,7 @@ static void sound_set_log(int was)                /* (development: TRILOGY_SFXLO
     static int log = -1;
     if (log < 0) log = getenv("TRILOGY_SFXLOG") != NULL;
     if (!log || was == s_set_now) return;
-    static const char *const name[] = { "S3K", "S2", "CD" };
+    static const char *const name[] = { "S3K", "S2", "CD", "S1" };
     const uint8_t *t = zram() + Z80_SFX_PTRS;
     fprintf(stderr, "[sfx] set %s -> %s (zone $%02X, mode $%02X; $62 at $%04X)\n", name[was], name[s_set_now],
             (unsigned)r8(RAM_Current_zone), (unsigned)r8(RAM_Game_mode), (unsigned)(t[(0x62 - 0x33) * 2] | t[(0x62 - 0x33) * 2 + 1] << 8));
@@ -245,12 +247,12 @@ static void sound_set_want(int set, int on)
 void tri_s2_sound_set(int on) { sound_set_want(SET_S2, on); }
 void tri_scd_sound_set(int on) { sound_set_want(SET_CD, on); }
 
-/* the set for where the game is: Sonic 2's in Sonic 2 zones, Sonic CD's in its levels */
+/* the set for where the game is: each game's own in its zones (S1, S2) and levels (CD) */
 void tri_sound_set_for_zone(void)
 {
     uint32_t e = tri_dir();
     int g = e ? tri_rd8(e + TD_GAME) : TRI_GAME_S3K;
-    s_set_want = g == TRI_GAME_S2 ? SET_S2 : g == TRI_GAME_CD ? SET_CD : SET_S3K;
+    s_set_want = g == TRI_GAME_S2 ? SET_S2 : g == TRI_GAME_CD ? SET_CD : g == TRI_GAME_S1 ? SET_S1 : SET_S3K;
     sound_set_apply(s_set_want);
 }
 
@@ -265,6 +267,10 @@ void tri_sound_set_tick(void)
     if (set != SET_S3K || s_set_now != SET_S3K) sound_set_apply(set);
 }
 
+/* each level frame (and 0 at every game mode change): Sonic CD's music held
+ * under S3K's songs, sped up by its speed-up (scd_audio.c) */
+void tri_scd_music_follow(int level) { scd_audio_follow(zram(), level); }
+
 int tri_sound_set_foreign(void) { return s_set_now != SET_S3K; }
 int tri_scd_sound_set_on(void) { return s_set_now == SET_CD; }
 
@@ -274,6 +280,14 @@ int tri_s2_sfx_id(int sndid)
     uint32_t b = set_blob(SET_S2);
     if (!b || sndid < 0xA0 || sndid > 0xF0) return 0;
     return tri_rd8(b + 1u + SFX_COUNT * 2u + (uint32_t)(sndid - 0xA0));
+}
+
+/* a Sonic 1 sound ($A0-$D0: sfx_*, the waterfall $D0) -> the id it plays at in the S1 set (0: none) */
+int tri_s1_sfx_id(int id)
+{
+    uint32_t b = s_set_now == SET_S1 ? set_blob(SET_S1) : 0;
+    if (!b || id < 0xA0 || id > 0xD0) return 0;
+    return tri_rd8(b + 1u + SFX_COUNT * 2u + (uint32_t)(id - 0xA0));
 }
 
 /* a Sonic CD FM sound ($90-$DF) -> the id it plays at in the CD set (0: none) */

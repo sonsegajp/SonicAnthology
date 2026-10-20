@@ -172,7 +172,7 @@ static void flap_door(uint32_t o)
     if ((int16_t)OB16(o, FLAP_WAIT) < 0) {
         SET16(o, FLAP_WAIT, OB16(o, FLAP_TIME));
         SET8(o, OBJ_anim, OB8(o, OBJ_anim) ^ 1);
-        if (OB8(o, OBJ_render) & 0x80) o_sfx(0x91);    /* sfx_Door: S3K door close */
+        if (OB8(o, OBJ_render) & 0x80) o_sfx_s1(0xBB);    /* sfx_Door */
     }
     o_animate(o, o_asset_anim(S1A_FLAP));
     tri_lz_wtunnel_allow = 0;
@@ -593,7 +593,7 @@ static void gargoyle(uint32_t o)
         SET8(o, OBJ_frame, 2);
         SET16(o, OBJ_y_pos, OB16(o, OBJ_y_pos) + 8);
         SET16(o, OBJ_x_vel, (OB8(o, OBJ_status) & 1) ? 0x200 : -0x200);
-        o_sfx(0x70);                               /* sfx_Fireball: S3K lava ball */
+        o_sfx_s1(0xAE);                               /* sfx_Fireball */
         /* fall through */
     default:                                       /* Gar_AniFire */
         if (!(o_frame_counter() & 7)) SET8(o, OBJ_frame, OB8(o, OBJ_frame) ^ 1);

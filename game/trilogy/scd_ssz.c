@@ -183,12 +183,65 @@ static void pre_sprites(void)              /* (the path he moves on) */
     }
 }
 
+/* Sonic CD lets a player who flies into a curved ceiling (a spring, a cage's
+ * throw, a jump up a pipe's side) land on it and run along it upside down;
+ * Stardust Speedway's routes go that way all over. By request he is never
+ * seen running upside down there: on the ground in the ceiling quadrant he
+ * curls into a ball and rides on, as Sonic CD's tube balls ride ceilings,
+ * except in the loops (chunks 4 and 6: their run is a full turn). (Letting
+ * go instead dropped him back where he came from, round and round) */
+static uint8_t s_curled[2];                /* (curled here: uncurled back on a floor) */
+
+static void ceiling_curl(uint32_t p, int n)
+{
+    if (OB8(p, OBJ_status) & (ST_AIR | 0x08 | 0x04)) return;   /* (in the air, on an object, a ball) */
+    if (((OB8(p, OBJ_angle) + 0x20) & 0xC0) != 0x80) return;
+    int b = layout_at(OBS16(p, OBJ_x_pos), OBS16(p, OBJ_y_pos)), c = b & 0x7F;
+    if (b > 0 && (b & 0x80) && (c == 4 || c == 6)) return;
+    int d = (int8_t)OB8(p, P_YRAD) - 0x0E;  /* (Sonic_DoRoll's radii; upside down the */
+    SET8(p, OBJ_status, OB8(p, OBJ_status) | 0x04);   /*  smaller ball moves up to stay on it) */
+    SET8(p, P_YRAD, 0x0E);
+    SET8(p, P_XRAD, 7);
+    SET8(p, P_ANIM, 2);
+    SET16(p, OBJ_y_pos, (uint16_t)(OBS16(p, OBJ_y_pos) - d));
+    s_curled[n] = 1;
+}
+
+/* ... and back on a floor runs on, as in Sonic CD he ran all along (landing
+ * from the air uncurls him already), where there is room to stand: not in a
+ * tube (CalcRoomOverHead, as Sonic_Jump asks it) */
+static void floor_uncurl(uint32_t p, int n)
+{
+    uint8_t st = OB8(p, OBJ_status);
+    if (!(st & 0x04)) { s_curled[n] = 0; return; }
+    if (st & (ST_AIR | 0x08) || ((OB8(p, OBJ_angle) + 0x20) & 0xC0)) return;
+    int d = (int8_t)OB8(p, 0x44) - (int8_t)OB8(p, P_YRAD);   /* (default_y_radius: standing) */
+    uint32_t dr[8], ar[7];
+    memcpy(dr, &D(0), sizeof dr); memcpy(ar, &A(0), sizeof ar);
+    A(0) = RAMPTR(p);
+    D(0) = (uint8_t)(OB8(p, OBJ_angle) + 0x80);
+    tri_jsr(S3K_CalcRoomOverHead);
+    int room = (int16_t)D(1);
+    memcpy(&D(0), dr, sizeof dr); memcpy(&A(0), ar, sizeof ar);
+    if (room <= d) return;
+    SET8(p, OBJ_status, st & ~0x04);
+    SET8(p, P_YRAD, OB8(p, 0x44));
+    SET8(p, P_XRAD, OB8(p, 0x45));
+    SET8(p, P_ANIM, 0);
+    SET16(p, OBJ_y_pos, (uint16_t)(OBS16(p, OBJ_y_pos) - d));
+    s_curled[n] = 0;
+}
+
 static void post_sprites(void)
 {
     for (int n = 0; n < 2; n++) {
         uint32_t p = o_player(n);
         if (!o_player_active(p) || r16(RAM_Debug_placement_mode)) continue;
         uint8_t r = OB8(p, P_ROUTINE);
+        if (r == 2 && !(OB8(p, P_OBJCTRL) & 0x81)) {
+            ceiling_curl(p, n);
+            if (s_curled[n]) floor_uncurl(p, n);
+        }
         /* (his own move ran, and with it GetLevelBlock: normal and not held, or hurt) */
         if ((r == 2 && !(OB8(p, P_OBJCTRL) & 1)) || r == 4) {
             int x = OBS16(p, OBJ_x_pos), y = OBS16(p, OBJ_y_pos);
@@ -728,6 +781,7 @@ void scd_ssz_hook(uint32_t pc)
         scd_ssz3_level_entry();
         s_layer = 0;
         memset(s_behind, 0, sizeof s_behind);
+        memset(s_curled, 0, sizeof s_curled);
     }
     if (!tri_dir() || !ssz()) return;
     if (pc == TH_LVL_PRE_SPRITES) pre_sprites();

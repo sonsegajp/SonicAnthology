@@ -836,16 +836,44 @@ static int cd_frame(long n, int32_t *l, int32_t *r)
 /* ------------------------------------------------------------------------
  * Mixing (the runner's extra source, at its internal rate)
  * ---------------------------------------------------------------------- */
-static double s_pcm_frac;
-static int s_pcm_count;
+/* In a Sonic CD level S3K's driver plays effects, and S3K's own songs over
+ * Sonic CD's music: invincibility, a 1-up, the drowning countdown. While one
+ * plays, Sonic CD's music waits where it was (the disc's track, the PCM chip
+ * and its driver held) and goes on from there after. The driver's speed-up
+ * (speed shoes: Change_Music_Tempo) speeds Sonic CD's music too: the disc's
+ * track plays 1.25 times as fast, pitch and all (Sonic Mania's and Origins'
+ * rate), the PCM driver ticks 1.25 times as often (its notes keep their pitch) */
+#define Z80_TEMPO_SPEEDUP 0x1C08u           /* zTempoSpeedup */
+#define Z80_SONG_TRACKS   0x1C40u           /* zTracksStart: DAC/FM6, FM1-FM5, PSG1-PSG3 */
+#define Z80_TRACK_LEN     0x30u
+#define SHOES_SPEED       1.25
+static int s_held;
+static double s_speed = 1;
+
+void scd_audio_follow(const uint8_t *z80, int level)
+{
+    int song = 0;
+    if (level)
+        for (unsigned t = 0; t < 9; t++)
+            if (z80[Z80_SONG_TRACKS + t * Z80_TRACK_LEN] & 0x80) song = 1;   /* (PlaybackControl bit 7) */
+    double speed = level && z80[Z80_TEMPO_SPEEDUP] ? SHOES_SPEED : 1.0;
+    static int log = -1;                                       /* development: TRILOGY_AUDIOLOG */
+    if (log < 0) log = getenv("TRILOGY_AUDIOLOG") != NULL;
+    if (log && (song != s_held || speed != s_speed))
+        fprintf(stderr, "[scd] under the driver: %s, speed %.2f\n", song ? "held" : "playing", speed);
+    s_held = song;
+    s_speed = speed;
+}
+
+static double s_pcm_frac, s_pcm_tick = TICK_SAMPLES;
 static int32_t s_pcm_prev[2], s_pcm_next[2];
 
 static void mix(int16_t *out, size_t frames, double rate)
 {
-    double cd_step = CD_RATE / rate, pcm_step = PCM_RATE / rate;
+    double cd_step = CD_RATE / rate * s_speed, pcm_step = PCM_RATE / rate;
     for (size_t i = 0; i < frames; i++) {
         int32_t l = 0, r = 0;
-        if (s_cd.f && !s_cd.paused) {
+        if (s_cd.f && !s_cd.paused && !s_held) {
             int32_t a[2], b[2];
             if (!cd_frame(s_cd.pos, &a[0], &a[1])) { scd_cd_stop(); }
             else {
@@ -859,12 +887,13 @@ static void mix(int16_t *out, size_t frames, double rate)
                 if (s_cd.fade && (s_cd.vol -= (float)(1.0 / (s_cd.fade * rate))) <= 0) scd_cd_stop();
             }
         }
-        if (s_bank) {
+        if (s_bank && !s_held) {
             while (s_pcm_frac >= 1) {                   /* chip samples (and driver ticks) due */
                 s_pcm_frac -= 1;
                 s_pcm_prev[0] = s_pcm_next[0];
                 s_pcm_prev[1] = s_pcm_next[1];
-                if (s_pcm_count++ % TICK_SAMPLES == 0) update_driver();
+                if (s_pcm_tick >= TICK_SAMPLES) { s_pcm_tick -= TICK_SAMPLES; update_driver(); }
+                s_pcm_tick += s_speed;
                 rf_sample(&s_pcm_next[0], &s_pcm_next[1]);
             }
             float t = (float)s_pcm_frac;

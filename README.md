@@ -11,7 +11,9 @@ our own C, transcribed from the original games' code.
   the bosses and Metal Sonic's race, and the UFO special stages, with the disc's own music
 - Sonic Origins player sprites as an option (the pack comes with the release)
 - Play any zone as Sonic, Tails or Knuckles, with abilities and achievements to unlock
-  (drop dash, peel-out, homing attack; Tails' flight boost; Knuckles' burrow and wall spin dash...)
+  (drop dash, peel-out, a homing attack with a lock-on reticle; Tails' flight boost;
+  Knuckles' burrow and wall spin dash...)
+- Each game keeps its own sound effects; Sonic 3's signpost ends every act
 - Tails Assist, as in Sonic Mania: Tails flies in and carries Sonic
 - On PC (Windows) and Android, with touch controls
 - Options: widescreen, smooth rotation, background blur, CRT filters, colour filters and more (pause menu)
@@ -111,7 +113,7 @@ How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE
 
 ## Playing
 
-1. Download the PC zip, **SonicAnthology-v1.1.0.zip** from [v1.1.0](../../releases/tag/v1.1.0), and unpack it anywhere.
+1. Download the PC zip, **SonicAnthology-v1.3.0.zip** from [v1.3.0](../../releases/tag/v1.3.0), and unpack it anywhere.
 2. Run **AnthologyBuilder.exe** and choose your dumps (it checks them):
 
    | Game | Dump | CRC32 |

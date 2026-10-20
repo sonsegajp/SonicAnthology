@@ -65,7 +65,7 @@ static void bumper_hit(uint32_t o, uint32_t p)
     SET8(p, OBJ_status, (OB8(p, OBJ_status) | 2) & ~0x30);
     SET8(p, OBJ_jumping, 0);
     SET8(o, OBJ_anim, 1);
-    o_sfx(0xAA);                               /* sfx_Bumper */
+    o_sfx_s1(0xB4);                               /* sfx_Bumper */
     uint16_t r = OB16(o, OBJ_respawn);
     if (r) {
         uint32_t a2 = 0xFF0000u | r;

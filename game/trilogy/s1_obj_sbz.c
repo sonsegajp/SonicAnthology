@@ -16,12 +16,12 @@
 #define OBJ_prev_anim    0x21
 #define OBJ_object_ctrl  0x2E
 #define OBJ_stick_convex 0x3C
-#define SFX_DOOR    0x91
-#define SFX_SAW     0x5C
-#define SFX_ZAP     0xA8
-#define SFX_FLAME   0x4F
-#define SFX_ROLL    0x3C
-#define SFX_TELE    0x74
+#define SFX_DOOR    0xBB
+#define SFX_SAW     0xB0
+#define SFX_ZAP     0xB1
+#define SFX_FLAME   0xB3
+#define SFX_ROLL    0xBE
+#define SFX_TELE    0xBC
 #define ANI_ROLL    2
 
 static int chk_del(uint32_t o, uint16_t x)
@@ -119,7 +119,7 @@ static void cannonball(uint32_t o)
     if ((int16_t)OB16(o, CB_TIME) < 0) {       /* Cbal_Explode: id_Explosion ($3F) */
         SET32(o, OBJ_code, S3K_Obj_Explosion);
         SET8(o, OBJ_routine, 6);
-        o_sfx(0xB4);
+        o_sfx_s1(0xC4);
         return;
     }
     SET8(o, OBJ_anim_timer, OB8(o, OBJ_anim_timer) - 1);
@@ -371,7 +371,7 @@ static void spin_platform(uint32_t o)
         if ((int16_t)OB16(o, SPIN_TIMER) < 0) {
             SET16(o, SPIN_TIMER, OB16(o, SPIN_TIMELEN));
             SET8(o, OBJ_anim, OB8(o, OBJ_anim) ^ 1);
-            if (OB8(o, OBJ_render) & 0x80) o_sfx(SFX_DOOR);
+            if (OB8(o, OBJ_render) & 0x80) o_sfx_s1(SFX_DOOR);
         }
         o_animate(o, o_asset_anim(S1A_TRAP));
         if (!OB8(o, OBJ_frame)) o_solid(o, 0x4B, 0x0C, 0x0D, OB16(o, OBJ_x_pos));
@@ -428,7 +428,7 @@ static void saws(uint32_t o)
         if (flip) d0 = (int16_t)(0x60 - d0);
         SET16(o, OBJ_x_pos, (uint16_t)(OB16(o, SAW_ORIGX) - d0));
         saw_frame(o);
-        if ((OB8(o, OBJ_render) & 0x80) && !(r16(RAM_Level_frame_counter) & 0x0F)) o_sfx(SFX_SAW);
+        if ((OB8(o, OBJ_render) & 0x80) && !(r16(RAM_Level_frame_counter) & 0x0F)) o_sfx_s1(SFX_SAW);
         break;
     }
     case 2: {
@@ -436,7 +436,7 @@ static void saws(uint32_t o)
         if (flip) d0 = (int16_t)(0x80 - d0);
         SET16(o, OBJ_y_pos, (uint16_t)(OB16(o, SAW_ORIGY) - d0));
         saw_frame(o);
-        if ((OB8(o, OBJ_render) & 0x80) && o_osc(0x06) == 0x18) o_sfx(SFX_SAW);
+        if ((OB8(o, OBJ_render) & 0x80) && o_osc(0x06) == 0x18) o_sfx_s1(SFX_SAW);
         break;
     }
     case 3: case 4: {
@@ -457,7 +457,7 @@ static void saws(uint32_t o)
         SET16(o, OBJ_x_vel, (OB8(o, OBJ_subtype) & 7) == 3 ? 0x600 : -0x600);
         SET8(o, OBJ_coll_flags, 0xA2);
         SET8(o, OBJ_frame, 2);
-        o_sfx(SFX_SAW);
+        o_sfx_s1(SFX_SAW);
         return;                                /* also skips the draw (addq.l #4,sp) */
     }
     default:
@@ -691,7 +691,7 @@ static void flamethrower(uint32_t o)
         SET8(o, OBJ_anim, a ^ 1);
         if (a & 1) {                           /* flaming again */
             SET16(o, 0x30, OB16(o, 0x32));
-            o_sfx(SFX_FLAME);
+            o_sfx_s1(SFX_FLAME);
         }
     }
     o_animate(o, o_asset_anim(S1A_FLAME));
@@ -710,7 +710,7 @@ static void electrocuter(uint32_t o)
     }
     if (!(r16(RAM_Level_frame_counter) & OB16(o, 0x34))) {
         SET8(o, OBJ_anim, 1);
-        if (OB8(o, OBJ_render) & 0x80) o_sfx(SFX_ZAP);
+        if (OB8(o, OBJ_render) & 0x80) o_sfx_s1(SFX_ZAP);
     }
     o_animate(o, o_asset_anim(S1A_ELEC));
     SET8(o, OBJ_coll_flags, OB8(o, OBJ_frame) == 4 ? 0xA4 : 0);
@@ -854,7 +854,7 @@ static void teleporter(uint32_t o)
         SET16(p, OBJ_x_pos, OB16(o, OBJ_x_pos));
         SET16(p, OBJ_y_pos, OB16(o, OBJ_y_pos));
         SET8(o, TELE_BUMP, 0);
-        o_sfx(SFX_ROLL);
+        o_sfx_s1(SFX_ROLL);
         break;
     }
     case 4: {                                  /* Tele_Bump: hop in place */
@@ -866,7 +866,7 @@ static void teleporter(uint32_t o)
         if (OB8(o, TELE_BUMP) == 0x80) {
             tele_aim(o);
             SET8(o, OBJ_routine, 6);
-            o_sfx(SFX_TELE);
+            o_sfx_s1(SFX_TELE);
         }
         break;
     }

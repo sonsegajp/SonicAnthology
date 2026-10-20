@@ -25,6 +25,10 @@ void s3_video_set_bg_blur(int level);
 /* Smooth sprite rotation: walking/running players are drawn from their
  * upright frame, turned to the ground angle. */
 void s3_video_set_rotation(int on);
+/* A window taller than the picture's shape: the rows the renderer adds above
+ * and below the 224 native lines this frame (overlays get them as lines
+ * -top..-1 and 224..). 0, 0 otherwise. */
+void s3_video_canvas_rows(int *top, int *bottom);
 /* Zones the game adds itself (not in the retail tables): their ring layout. */
 typedef unsigned (*S3VideoRingLayout)(void);
 void s3_video_set_ring_layout(S3VideoRingLayout fn);

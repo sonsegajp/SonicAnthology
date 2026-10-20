@@ -317,7 +317,7 @@ void o_sfx(int id)
     if (log && id >= 0x33 && id <= 0xDF) {
         const uint8_t *z = g_machine.bus.z80_ram;
         fprintf(stderr, "[sfx] f=%u $%02X %s ptr $%04X\n", (unsigned)r16(RAM_Level_frame_counter), id,
-                tri_scd_sound_set_on() ? "CD" : tri_sound_set_foreign() ? "S2" : "S3K",
+                tri_scd_sound_set_on() ? "CD" : tri_sound_set_foreign() ? "S1/S2" : "S3K",
                 (unsigned)(z[Z80_SFX_PTRS + (id - 0x33) * 2] | z[Z80_SFX_PTRS + (id - 0x33) * 2 + 1] << 8));
     }
     if (id >= 0xBC && id != 0xBC && id != 0xC8 && tri_sound_set_foreign())
@@ -330,6 +330,24 @@ void o_sfx(int id)
 void o_sfx_s2(int sndid)
 {
     int id = tri_s2_sfx_id(sndid);
+    if (id) o_sfx(id);
+}
+
+/* a Sonic 1 sound by its own id (sfx_*, $A0-$CF; the waterfall $D0), from
+ * Sonic 1's objects: in the S1 set (s1_sfx.py) the id it plays at; without it
+ * (a trilogy.bin with no S1 set), the S3K sound that stood in for it */
+void o_sfx_s1(int s1id)
+{
+    static const uint8_t k_s3k[][2] = {
+        { 0xA7, 0x69 }, { 0xAA, 0x39 }, { 0xAC, 0x6E }, { 0xAE, 0x70 }, { 0xB0, 0x5C }, { 0xB1, 0xA8 },
+        { 0xB3, 0x4F }, { 0xB4, 0xAA }, { 0xB6, 0x52 }, { 0xB7, 0x6F }, { 0xB9, 0x59 }, { 0xBB, 0x91 },
+        { 0xBC, 0x74 }, { 0xBD, 0x5D }, { 0xBE, 0x3C }, { 0xC0, 0xBA }, { 0xC4, 0xB4 }, { 0xC7, 0x94 },
+        { 0xC8, 0x43 }, { 0xC9, 0xB0 }, { 0xCB, 0x59 }, { 0xCC, 0xB1 }, { 0xCD, 0x5B }, { 0xD0, 0x4B },
+    };
+    int id = tri_s1_sfx_id(s1id);
+    if (!id)
+        for (size_t k = 0; k < sizeof k_s3k / sizeof k_s3k[0]; k++)
+            if (k_s3k[k][0] == s1id) id = k_s3k[k][1];
     if (id) o_sfx(id);
 }
 
@@ -734,10 +752,10 @@ void tri_obj_frame(void)
         static int pos = -1;                               /* development: TRILOGY_POSLOG=n, Player 1 every n frames */
         if (pos < 0) { const char *g = getenv("TRILOGY_POSLOG"); pos = g && *g ? atoi(g) : 0; }
         if (pos > 0 && !(r16(RAM_Level_frame_counter) % pos))
-            fprintf(stderr, "[POS] f %u x %04X y %04X xv %04X yv %04X gv %04X st %02X rt %02X an %02X oc %02X iv %02X ang %02X ts %02X\n", r16(RAM_Level_frame_counter),
+            fprintf(stderr, "[POS] f %u x %04X y %04X xv %04X yv %04X gv %04X st %02X rt %02X an %02X oc %02X iv %02X ang %02X ts %02X rf %02X mf %02X\n", r16(RAM_Level_frame_counter),
                     r16(RAM_Player_1 + 0x10), r16(RAM_Player_1 + 0x14), r16(RAM_Player_1 + 0x18), r16(RAM_Player_1 + 0x1A),
                     r16(RAM_Player_1 + 0x1C), r8(RAM_Player_1 + 0x2A), r8(RAM_Player_1 + 0x05), r8(RAM_Player_1 + 0x20), r8(RAM_Player_1 + 0x2E), r8(RAM_Player_1 + 0x34),
-                    r8(RAM_Player_1 + 0x26), r8(RAM_Player_1 + 0x46));
+                    r8(RAM_Player_1 + 0x26), r8(RAM_Player_1 + 0x46), r8(RAM_Player_1 + 0x04), r8(RAM_Player_1 + 0x22));
     }
     {
         static int ufo_dev = -2;                           /* development: Sonic CD UFO stage n (1-7), five seconds in */
@@ -800,6 +818,19 @@ void tri_obj_frame(void)
         if (kf >= 0 && r16(RAM_Level_frame_counter) == (unsigned)kf) {
             SET16(RAM_Player_1, OBJ_ground_vel, (uint16_t)kv);
             SET16(RAM_Player_1, OBJ_x_vel, (uint16_t)kv);
+        }
+    }
+    {
+        static int sf = -2;                                /* development: TRILOGY_SIGNTEST=frame, S3K's act sign then */
+        if (sf == -2) { const char *g = getenv("TRILOGY_SIGNTEST"); sf = g ? atoi(g) : -1; }
+        if (sf >= 0 && r16(RAM_Level_frame_counter) == (unsigned)sf) {
+            uint32_t a1 = o_alloc();
+            if (a1) {
+                SET32(a1, OBJ_code, S3K_Obj_EndSign);
+                SET16(a1, OBJ_x_pos, (uint16_t)(r16(RAM_Camera_X_pos) + 0xC0));
+                A(1) = S3K_PLC_EndSignStuff;
+                tri_jsr(S3K_Load_PLC_Raw);
+            }
         }
     }
     {

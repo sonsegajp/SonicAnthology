@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mdcodecs import nemesis_decode, enigma_decode, kosinski_decode, kosinski_encode, kosm_encode  # noqa: E402
 from s1_objects import S1Objects, write_asset_header  # noqa: E402
+import s1_objects  # noqa: E402
 from tilepack import Packer, remap_tile  # noqa: E402
 from act3_numeral import numeral_3  # noqa: E402
 import s2_level  # noqa: E402
@@ -792,6 +793,10 @@ def main(argv=None):
     blobs.append(bank.add(bumpers))
     import knux_walldash                                    # TRI_BLOB_KNUX_WALLDASH (53): his spin dash + dust, turned up a wall
     blobs.append(bank.add(knux_walldash.build(Path(args.s3k).read_bytes())))
+    import s1_sfx                                           # TRI_BLOB_S1_SFX (54): the Sonic 1 sound set (s1_sfx.py)
+    s1tab, s1size, s1ids = s1_sfx.build(s1rom, s3krom, bank, s1_objects.load_symbols())
+    print(f"  S1 sound set: {len(s1ids)} S1 effects, {s1size} bytes")
+    blobs.append(bank.add(s1tab))
     print(f"  music: {len(sizes)} S1 songs, {sum(sizes)} bytes")
     struct.pack_into('>I', bank.data, 0x20, bank.add(b''.join(struct.pack('>I', a) for a in blobs)))
     build_title_cards(bank, Path(args.s3k).read_bytes())

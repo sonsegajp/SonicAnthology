@@ -24,7 +24,7 @@ typedef struct { int x,y,w,h; float depth; unsigned kind,lod; } SSSphere;
 static SSPoint *ss_ground;
 static SSSphere *ss_spheres;
 static unsigned ss_count,ss_capacity,ss_margin_count;
-static int ss_width,ss_ready;
+static int ss_width,ss_top=-1,ss_rows,ss_ready;   /* (the ground's rows: the canvas's, from -ss_top) */
 static double ss_stretch,ss_sin,ss_cos,ss_x,ss_y;
 static uint8_t ss_board[1024],ss_texture[SS_KINDS][16][SS_TEXTURE*SS_TEXTURE];
 static uint16_t ss_texture_ready[SS_KINDS];
@@ -124,12 +124,13 @@ static void ss_begin(const GVDP *v,int width)
     ss_ready=0;ss_count=ss_margin_count=0;
     if(!ss_latched || width<320 || width>32768 || ss_long(ss_state,SS_EXTRA+16)>=0x400000u ||
        !ss_long(ss_state,SS_EXTRA+16))return;
-    if(width!=ss_width) {
-        SSPoint *points=(SSPoint *)realloc(ss_ground,(size_t)width*SS_HEIGHT*sizeof *points);
+    int rows=SS_HEIGHT+s_top+s_bottom;
+    if(width!=ss_width || s_top!=ss_top || rows!=ss_rows) {
+        SSPoint *points=(SSPoint *)realloc(ss_ground,(size_t)width*rows*sizeof *points);
         if(!points)return;
-        ss_ground=points;ss_width=width;ss_stretch=width/320.0;
-        for(int y=0;y<SS_HEIGHT;++y)for(int x=0;x<width;++x)
-            ss_ground[(size_t)y*width+x]=ss_intersect(x-(width-1)*.5,y,ss_stretch);
+        ss_ground=points;ss_width=width;ss_top=s_top;ss_rows=rows;ss_stretch=width/320.0;
+        for(int y=0;y<rows;++y)for(int x=0;x<width;++x)
+            ss_ground[(size_t)y*width+x]=ss_intersect(x-(width-1)*.5,y-s_top,ss_stretch);
     }
     memcpy(ss_board,ss_state+0xF100,sizeof ss_board);
     ss_x=ss_word(ss_state,0xE422)/256.0;ss_y=ss_word(ss_state,0xE424)/256.0;
@@ -162,7 +163,7 @@ static void ss_begin(const GVDP *v,int width)
         if(!(ss_texture_ready[kind]&(1u<<lod)))ss_load_texture(v,kind,(unsigned)lod);
         int sx=(int)floor(px+(width-1)*.5-size*.5+.5);
         int sy=(int)floor(py-ss_texture_floor[kind][lod]*size/64.0+.5);
-        if(sx>=width || sx+size<=0 || sy>=SS_HEIGHT || sy+size<=0)continue;
+        if(sx>=width || sx+size<=0 || sy>=SS_HEIGHT+s_bottom || sy+size<=-s_top)continue;
         if(ss_count==ss_capacity) {
             unsigned capacity=ss_capacity?ss_capacity*2:512;
             SSSphere *sprites=(SSSphere *)realloc(ss_spheres,capacity*sizeof *sprites);
@@ -184,7 +185,7 @@ static void ss_draw_spheres(int line,uint32_t *out,int width,const uint32_t *pal
         for(int x=s->x<0?0:s->x;x<s->x+s->w && x<width;++x) {
             unsigned p=ss_texture[s->kind][s->lod][ty*SS_TEXTURE+(x-s->x)*SS_TEXTURE/s->w];
             if(!p)continue;
-            float ground=ss_ground[(size_t)line*width+x].depth;
+            float ground=ss_ground[(size_t)(line+ss_top)*width+x].depth;
             if(!ss_clear && s->depth>8 && ground && s->depth>ground+.15f)continue;
             out[x]=palette[p];
         }
@@ -238,7 +239,7 @@ static void ss_scanline(const GVDP *v,int line,uint32_t *out,int width,
     unsigned color0=56+(ss_color_phase&7),color1=56+((ss_color_phase+4)&7);
     int by=line+(v->vsram[1]&1023),origin=(width-320)/2;
     for(int x=0;x<width;++x) {
-        const SSPoint *p=&ss_ground[(size_t)line*width+x];
+        const SSPoint *p=&ss_ground[(size_t)(line+ss_top)*width+x];
         if(p->depth) {
             double wx=ss_x+p->x*ss_cos-p->z*ss_sin;
             double wy=ss_y-p->x*ss_sin-p->z*ss_cos;
@@ -259,10 +260,11 @@ static void ss_scanline(const GVDP *v,int line,uint32_t *out,int width,
     ss_native_sprites(v,line,out,width,palette,shadow,1);
     /* Counters are plane-A tiles, not SAT sprites. Move their two complete
      * 64x24 panels to the actual left/right edges; no centered HUD ghost. */
-    if(line>=8 && line<32)for(int side=0;side<2;++side)for(int dx=0;dx<64;++dx) {
+    int hl=line+ss_top;                             /* (at the canvas's top) */
+    if(hl>=8 && hl<32)for(int side=0;side<2;++side)for(int dx=0;dx<64;++dx) {
         int source=(side?240:16)+dx,x=(side?width-80:16)+dx;
-        unsigned attr=plane_attr(v,base_a,source,line);
-        unsigned pixel=pattern_pixel(v,(uint16_t)attr,source,line);
+        unsigned attr=plane_attr(v,base_a,source,hl);
+        unsigned pixel=pattern_pixel(v,(uint16_t)attr,source,hl);
         if(pixel && x>=0 && x<width)out[x]=palette[pixel];
     }
 }

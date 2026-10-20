@@ -213,7 +213,7 @@ static void false_floor(uint32_t o)
                 SET16(a1, OBJ_y_pos, OB16(a1, OBJ_y_pos) + pos[i][1]);
                 SET8(a1, OBJ_frame, i + 1);
             }
-            o_sfx(0x59);                       /* sfx_WallSmash (S3K: collapse) */
+            o_sfx_s1(0xCB);                       /* sfx_WallSmash */
             o_draw(o);
         }
         return;
@@ -352,7 +352,7 @@ static void boss_plasma(uint32_t o)
         if (OB8(a1, 0x34) == 6) {              /* boss beaten: blow up */
             SET32(o, OBJ_code, S3K_Obj_Explosion);
             SET8(o, OBJ_routine, 6);
-            o_sfx(0xB4);
+            o_sfx_s1(0xC4);
             return;
         }
         SET8(o, OBJ_anim, 0);
@@ -486,7 +486,7 @@ static void fz_eggman(uint32_t o)
             SET16(a1, CYL_CARRY, 0);
             SET16(o, 0x32, 1);
             SET8(o, FZ_HURT, 0);
-            o_sfx(0x6F);                       /* sfx_Rumbling */
+            o_sfx_s1(0xB7);                       /* sfx_Rumbling */
         }
         if ((int16_t)OB16(o, 0x32) < 0) {       /* loc_19FA6: cylinders done */
             if (OB8(o, OBJ_coll_prop)) {
@@ -513,7 +513,7 @@ static void fz_eggman(uint32_t o)
                 if (!OB8(o, FZ_HURT) && OB8(o, OBJ_coll_prop)) {   /* (fixed: no underflow) */
                     SET8(o, OBJ_coll_prop, OB8(o, OBJ_coll_prop) - 1);
                     SET8(o, FZ_HURT, 0x64);
-                    o_sfx(0x6E);
+                    o_sfx_s1(0xAC);
                 }
             }
             hit = 1;
@@ -534,9 +534,9 @@ static void fz_eggman(uint32_t o)
         if ((int16_t)OB16(o, 0x30) < 0) {
             SET16(o, 0x30, 0);
             SET8(a1, FZ_GO, 0xFF);
-            o_sfx(0xA8);
+            o_sfx_s1(0xB1);
         }
-        if (!(r16(RAM_Level_frame_counter) & 0x0F)) o_sfx(0xA8);
+        if (!(r16(RAM_Level_frame_counter) & 0x0F)) o_sfx_s1(0xB1);
         if (OB16(o, 0x32)) {
             SET8(o, FZ_STATE, 2);
             SET16(o, 0x30, 0xFFFF);
@@ -624,7 +624,7 @@ static void fz_eggman(uint32_t o)
         int run = 1;
         if (!OB16(o, 0x30)) {
             if (OB8(o, OBJ_coll_flags)) run = 0;
-            else { SET16(o, 0x30, 0x1E); o_sfx(0x6E); }
+            else { SET16(o, 0x30, 0x1E); o_sfx_s1(0xAC); }
         }
         if (run) {
             SET16(o, 0x30, OB16(o, 0x30) - 1);

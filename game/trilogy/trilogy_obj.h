@@ -138,6 +138,7 @@ void     o_spike_hurt(uint32_t o, uint32_t player); /* S3K spike hurt (sub_24280
 extern uint8_t s1_ani0_frame, s1_ani1_frame, s1_ani2_frame;
 void     s1_synchro_animate(void);
 void     o_sfx(int id);
+void     o_sfx_s1(int s1id);         /* a Sonic 1 sound (sfx_*, $A0-$D0) in the S1 sound set */
 void     o_sfx_s2(int sndid);        /* a Sonic 2 sound (SndID_*) in the S2 sound set */
 void     o_sfx_cd(int fm_id);        /* a Sonic CD FM sound (FM_*, $90-$DF) in the CD sound set */
 int      o_random(void);                        /* Random_Number */

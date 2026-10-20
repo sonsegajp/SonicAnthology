@@ -91,7 +91,7 @@ static void lava_ball(uint32_t o)
             SET16(o, OBJ_x_vel, OB16(o, OBJ_y_vel));
             SET16(o, OBJ_y_vel, 0);
         }
-        o_sfx(0x70);                           /* sfx_Fireball (S3K: lava ball) */
+        o_sfx_s1(0xAE);                           /* sfx_Fireball */
     }
     /* fall through */
     case 2: {
@@ -250,7 +250,7 @@ static void grass_fire(uint32_t o)
         SET16(o, LG_ORIGX, OB16(o, OBJ_x_pos));
         SET8(o, OBJ_coll_flags, 0x8B);
         SET8(o, OBJ_shield_reaction, SHIELD_FIRE);
-        o_sfx(0x43);                           /* sfx_Burning (S3K: fire attack) */
+        o_sfx_s1(0xC8);                           /* sfx_Burning */
         if (OB8(o, OBJ_subtype)) { SET8(o, OBJ_routine, 4); goto move; }
         /* fall through */
     case 2: {                                  /* GFire_Spread */
@@ -433,7 +433,7 @@ static void cstom_restart(uint32_t o)
 static void cstom_rise_sound(uint32_t o)
 {
     if (!(o_frame_counter() & 0x0F) && (OB8(o, OBJ_render) & 0x80))
-        o_sfx(0x94);                           /* sfx_ChainRise (S3K: chain tick) */
+        o_sfx_s1(0xC7);                           /* sfx_ChainRise */
 }
 
 static void cstom_types(uint32_t o)
@@ -454,7 +454,7 @@ static void cstom_types(uint32_t o)
             if (!(OB16(o, CS_LEN) > OB16(o, CS_POS))) {
                 SET16(o, CS_POS, OB16(o, CS_LEN));
                 SET16(o, OBJ_y_vel, 0);
-                if (OB8(o, OBJ_render) & 0x80) o_sfx(0x5D);   /* sfx_ChainStomp (S3K: floor thump) */
+                if (OB8(o, OBJ_render) & 0x80) o_sfx_s1(0xBD);   /* sfx_ChainStomp */
             }
         }
         break;
@@ -476,7 +476,7 @@ static void cstom_types(uint32_t o)
                 SET16(o, OBJ_y_vel, 0);
                 SET16(o, 0x36, 1);
                 SET16(o, 0x38, 0x3C);
-                if (OB8(o, OBJ_render) & 0x80) o_sfx(0x5D);
+                if (OB8(o, OBJ_render) & 0x80) o_sfx_s1(0xBD);
             }
         }
         break;
@@ -603,7 +603,7 @@ static void button(uint32_t o)
         int d3 = (sub & 0x40) ? 7 : 0;
         int pressed = o_standing(o) || ((sub & 0x80) && but_mzblock(o));
         if (pressed) {
-            if (!r8(a3)) o_sfx(0x5B);          /* sfx_Switch */
+            if (!r8(a3)) o_sfx_s1(0xCD);          /* sfx_Switch */
             w8(a3, (uint8_t)(r8(a3) | (1 << d3)));
             SET8(o, OBJ_frame, OB8(o, OBJ_frame) | 1);
         } else {
@@ -665,10 +665,13 @@ static void pushb_solid(uint32_t o, int d1, int d2, int d3, int d4)
         }
         return;
     }
+    uint32_t p = RAM_Player_1;
+    int in = (int16_t)(OB16(p, OBJ_x_pos) - OB16(o, OBJ_x_pos)) + d1;   /* (S1's Solid_ChkEnter: how far in, */
+    if (in > d1) in -= 2 * d1;                                           /*  from the left side or the right) */
     o_solid(o, d1, d2, d3, d4);
     if (!(g_o_d6 & (1u << 16)) || OB8(o, PB_LAVA))  /* P1 side contact */
         return;
-    uint32_t p = RAM_Player_1;
+    if (!in) return;                           /* (only a pixel pushed in pushes: S3K's touch counts at 0 too) */
     if (OB8(p, OBJ_status) & 2) return;        /* in the air */
     int right = (int16_t)OB16(p, OBJ_x_pos) < (int16_t)OB16(o, OBJ_x_pos);
     int d0, vel;
@@ -686,7 +689,7 @@ static void pushb_solid(uint32_t o, int d1, int d2, int d3, int d4)
     SET16(p, OBJ_x_pos, OB16(p, OBJ_x_pos) + d0);
     SET16(p, OBJ_ground_vel, vel);
     SET16(p, OBJ_x_vel, 0);
-    o_sfx(0x69);                               /* sfx_Push */
+    o_sfx_s1(0xA7);                               /* sfx_Push */
     if (OB8(o, OBJ_subtype) & 0x80) return;
     int16_t f = o_floor_dist(o);
     if (f > 4) {
@@ -981,7 +984,7 @@ static void lava_geyser(uint32_t o)
                 SET8(o, OBJ_subtype, 0);
             }
         }
-        o_sfx(0x43);                           /* sfx_Burning */
+        o_sfx_s1(0xC8);                           /* sfx_Burning */
     }
     /* fall through */
     case 2: {                                  /* Geyser_Action */
@@ -1294,7 +1297,7 @@ static void collapse_floor(uint32_t o)
                     SET8(a1, CF_TIME, d[i]);
                 }
                 o_draw(o);
-                o_sfx(0x59);                   /* sfx_Collapse */
+                o_sfx_s1(0xB9);                   /* sfx_Collapse */
                 return;
             }
             SET8(o, CF_TIME, OB8(o, CF_TIME) - 1);
@@ -1410,7 +1413,7 @@ static void basaran(uint32_t o)
         break;
     }
     case 4: {                                  /* .flapsound */
-        if (!(o_frame_counter() & 0x0F)) o_sfx(0xBA);   /* sfx_Basaran (S3K: flying flap) */
+        if (!(o_frame_counter() & 0x0F)) o_sfx_s1(0xC0);   /* sfx_Basaran */
         o_move(o);
         int16_t d0 = (int16_t)(r16(RAM_Player_1 + OBJ_x_pos) - OB16(o, OBJ_x_pos));
         if (d0 < 0) d0 = -d0;

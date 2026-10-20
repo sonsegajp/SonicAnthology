@@ -812,6 +812,30 @@ kind = "game_hook"
 addr = 0x02326C # trilogy SPRING_NEAR (sub_2326C)
 kind = "game_hook"
 [[widescreen_site]]
+addr = 0x022FAE # trilogy SPRING_UP (loc_22FAE)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x022EF4 # trilogy SPRING_UP_SOLID (Obj_Spring_Up)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x023542 # trilogy SPRING_DIAG (loc_23542)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x023490 # trilogy SPRING_DIAG_SOLID (Obj_Spring_UpDiag)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x023088 # trilogy SPRING_SIDE_P1 (loc_23088)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0230BA # trilogy SPRING_SIDE_P2 (loc_230BA)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0231CA # trilogy SPRING_SIDE_GV (loc_231BE)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x083832 # trilogy ENDSIGN_FALL (Obj_EndSignFall)
+kind = "game_hook"
+[[widescreen_site]]
 addr = 0x0076D0 # trilogy SOLIDS_SPLIT (LoadSolids)
 kind = "game_hook"
 [[widescreen_site]]

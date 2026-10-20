@@ -31,8 +31,8 @@ frequency table, voices (operators in S3K's order, carriers marked by TL bit
 The disc's charge sound ($9C: a rising note held until the player's own
 code sends $AB, charge stop, which S3K's never does) plays for S3K's spindash
 rev as a variant that lets go of the note after 60 frames (its endless jump
-an F7 loop, then a stop); the game's own $9C is the disc's. S3K's roll has no
-sound: Sonic CD's has none (only the Japanese roll tunnels play $9C).
+an F7 loop, then a stop); the game's own $9C is the disc's. Sonic CD's roll
+has no sound (only the Japanese roll tunnels play $9C): S3K's plays, by request.
 
 The bank then holds, as s2_sfx's S2 set (trilogy_music.c swaps it in while a
 Sonic CD level, its time warp or its special stage runs):
@@ -111,7 +111,8 @@ S3K_KEEP = [0x3E, 0x3F, 0x40, 0x41,                 # fire / bubble / lightning 
             0x49, 0x4A, 0x4C, 0x7E,                 # Knuckles: thump, grab, glide land, slide
             0xBA, 0xBB, 0xBC, 0xC8,                 # Tails flying / tired, slide skids
             0x4D, 0x57,                             # capsule projectile, bubbler geyser
-            0x9F]                                   # Super Sonic
+            0x9F,                                   # Super Sonic
+            0x3C]                                   # roll (Sonic CD's is silent: by request, S3K's)
 
 
 def find_driver(disc):

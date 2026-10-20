@@ -31,6 +31,7 @@
 #include "trilogy_obj.h"
 #include "sonic3_video.h"
 #include <SDL.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -105,7 +106,7 @@ static Img *img_load(const char *name)
     return img;
 }
 
-static Img *s_bg, *s_conf, *s_side, *s_logo, *s_menu_bg, *s_ds_tile, *s_ds_band, *s_text;
+static Img *s_bg, *s_conf, *s_conf_open, *s_side, *s_logo, *s_menu_bg, *s_ds_tile, *s_ds_band, *s_text;
 /* title_text.tga: rows of TEXT_H, white then gold, for these words */
 enum { TX_PRESS, TX_START, TX_COMPETITION, TX_OPTIONS, TX_COUNT, TEXT_H = 18 };
 static int s_text_w[TX_COUNT];
@@ -116,6 +117,7 @@ static void load_art(void)
     done = 1;
     s_bg = img_load("title_bg.tga");
     s_conf = img_load("title_confetti.tga");
+    s_conf_open = img_load("title_confetti_open.tga");
     s_side = img_load("title_side.tga");
     s_logo = img_load("title_logo.tga");
     s_menu_bg = img_load("menu_bg.tga");
@@ -255,10 +257,12 @@ int tri_title_hook(uint32_t pc)
 #define MENU_BAND 202                                 /* (menu_bg's) */
 
 /* a ground picture, its centre on the screen's; past its edges the edge
- * columns carry on */
+ * columns carry on, and the bottom row; above its top (a taller screen) it
+ * is reflected */
 static void draw_ground(const Img *img, int line, uint32_t *out, int width)
 {
-    const uint32_t *row = img->px + (size_t)(line < img->h ? line : img->h - 1) * img->w;
+    int y = line < 0 ? -1 - line : line;
+    const uint32_t *row = img->px + (size_t)(y < img->h ? y : img->h - 1) * img->w;
     int x0 = (width - img->w) / 2;
     for (int x = 0; x < width; x++) {
         int sx = x - x0;
@@ -445,13 +449,135 @@ static void draw_options(int line, uint32_t *out, int width)
     centred(line, out, width, MENU_BAND + 9, "A CHANGE  B BACK", C_PALE);
 }
 
+/* ---- a taller screen -----------------------------------------------------
+ * sonic3_video's extent adds rows above and below the 224 native lines (an
+ * unfolded foldable, a tablet held upright). The title then lays itself out
+ * on the whole canvas, as the Android setup screen does: the header at its
+ * top, the band at its foot, the logo in the middle of the sky. title_bg's
+ * flat shapes are drawn here at any height; the confetti (its open layer)
+ * and the left band run the whole length. r: the canvas row. */
+#define TC_RED    0xFFFF3131u
+#define TC_GREEN  0xFF57AE57u
+#define TC_YELLOW 0xFFFFFF57u
+#define TC_BLUE   0xFF3157AEu
+#define TC_BLACK  0xFF000000u
+#define TC_WHITE  0xFFFFFFFFu
+
+static void span(uint32_t *out, int width, int x0, int x1, uint32_t c)
+{
+    if (x0 < 0) x0 = 0;
+    if (x1 > width) x1 = width;
+    for (int x = x0; x < x1; x++) out[x] = c;
+}
+
+/* the ring echoing the sun (title_art.py: a 3 px blue outline in the box
+ * x0, y0 .. +40, a 1 px black one a pixel down and right) */
+static void tall_ring(int r, uint32_t *out, int width, int x0, int y0)
+{
+    for (int k = 0; k < 2; k++) {
+        float cx = (float)(x0 + 20 + k), cy = (float)(y0 + 20 + k), dy = (float)r - cy, in = k ? 19.5f : 17.5f;
+        if (dy < -21 || dy > 21) continue;
+        for (int x = x0 + k; x <= x0 + 41; x++) {
+            float dx = x - cx, d = sqrtf(dx * dx + dy * dy);
+            if (d >= in && d <= 20.5f) put(out, width, x, k ? TC_BLACK : TC_BLUE);
+        }
+    }
+}
+
+static void tall_ground(int r, uint32_t *out, int width, int band, int sy)
+{
+    int cx = width / 2;
+    if (r >= band) {                                  /* the band, two white blocks a side */
+        span(out, width, 0, width, TC_BLUE);
+        if (r >= band + 30 && r < band + 34)
+            for (int k = 0; k < 2; k++) {
+                int sx = k ? cx + 140 : cx - 152;
+                span(out, width, sx, sx + 5, TC_WHITE);
+                span(out, width, sx + 7, sx + 12, TC_WHITE);
+            }
+        return;
+    }
+    span(out, width, 0, width, TC_WHITE);
+    span(out, width, cx + 186 - 110 * r / band, width, TC_RED);   /* (its edge: cx+186 at the top, cx+76 at the band) */
+    if (r >= band - 80)                                         /* (green: -40 at band-80, cx-96 at the band) */
+        span(out, width, 0, -40 + (cx - 56) * (r - (band - 80)) / 80 + 1, TC_GREEN);
+    int dy = r - (82 + sy);
+    if (dy >= -76 && dy <= 76) {                                /* the sun */
+        int hw = (int)sqrtf((float)(76 * 76 - dy * dy));
+        span(out, width, cx - 34 - hw, cx - 34 + hw + 1, TC_YELLOW);
+    }
+    tall_ring(r, out, width, cx + 132, 120 + sy);
+    if (r >= band - 14 && r < band - 9)
+        for (int i = 0; i < 7; i++) span(out, width, cx - 150 + i * 7, cx - 145 + i * 7, TC_BLACK);
+    if (r >= band - 10 && r < band - 7) span(out, width, cx + 108, cx + 151, TC_BLACK);
+    if (r == 13) span(out, width, cx - 154, cx + 154, TC_BLUE);  /* the header strip's rule */
+}
+
+/* the left band down the whole canvas: its black and teeth repeated (whole
+ * teeth, in step), the word in the middle of the sky, the squiggle from
+ * above the band to the foot */
+static void tall_side(int r, uint32_t *out, int width, int band)
+{
+    if (!s_side) return;
+    int shift = band - BAND_TOP, ws = shift / 2 / 10 * 10;
+    int sr = r >= 16 + ws && r < BAND_TOP - 30 + ws ? r - ws : 6 + wrap(r - 6 - ws, 10);
+    const uint32_t *row = s_side->px + (size_t)sr * s_side->w;
+    for (int x = 0; x < s_side->w && x < width; x++) out[x] = blend(out[x], row[x]);
+    if (r >= band - 30) {                             /* (title_art.py: x = 14 + 4 sin(row / 2), 2 px) */
+        float a = 14 + 4 * sinf((r - 1 - shift) * 0.5f), b = 14 + 4 * sinf((r - shift) * 0.5f);
+        int x0 = (int)floorf(a < b ? a : b), x1 = (int)ceilf(a < b ? b : a) + 1;
+        for (int x = x0; x <= x1; x++) put(out, width, x, TC_YELLOW);
+    }
+}
+
+static void title_tall(int r, uint32_t *out, int width, int band)
+{
+    int sy = (band - BAND_TOP) / 2;
+    tall_ground(r, out, width, band, sy);
+    const Img *conf = s_conf_open ? s_conf_open : s_conf;
+    if (conf && r >= CONF_Y0 && r < band) {           /* rising, wrapped */
+        const uint32_t *row = conf->px + (size_t)wrap(r - CONF_Y0 + s_t / 3, conf->h) * conf->w;
+        int x0 = (width - conf->w) / 2;
+        for (int x = x0 < 0 ? 0 : x0; x < width && x - x0 < conf->w; x++)
+            if (row[x - x0] >> 24) out[x] = blend(out[x], row[x - x0]);
+    }
+    int dy = band - r;                                /* the band's teeth */
+    if (dy >= 1 && dy <= 5)
+        for (int x = 0, x0 = (width - 640) / 2; x < width; x++) {
+            int k = wrap(x - x0 - s_t / 2, 10);
+            if (k >= dy && k <= 10 - dy) out[x] = TC_BLUE;
+        }
+    if (width >= 384) {
+        tall_side(r, out, width, band);
+        if (r < band - 6) {                           /* green teeth down the right */
+            int y = wrap(r - s_t / 2, 14);
+            int depth = 13 - (y < 7 ? 7 - y : y - 7) * 13 / 7;
+            for (int x = width - depth; x < width; x++) out[x] = TC_GREEN;
+        }
+    }
+    draw_header(r, out, width);
+    if (s_logo) draw_img(s_logo, r, out, width, (width - s_logo->w) / 2, 16 + sy);
+    else draw_logo(r - sy, out, width);
+    if (s_state == ST_PRESS) {
+        if ((s_t / 30) & 1 || s_t < 30) {
+            if (s_text) draw_word(r, out, width, TX_PRESS, 0, (width - s_text_w[TX_PRESS]) / 2, band + 5);
+            else centred(r, out, width, band + 10, "PRESS START BUTTON", C_NORMAL);
+        }
+    } else
+        draw_menu(r, out, width, band + 10);
+    centred(r, out, width, band + 26, "@ SEGA", C_PALE);
+}
+
 /* Called for every output row (trilogy_menu.c's frame overlay). */
 void tri_title_frame(int line, uint32_t *out, int width)
 {
     extern int s3_video_interpolating(void);
     if (line == 0 && !s3_video_interpolating() && s_on && s_started) s_t++;
     if (!s_on || !s_started || !title_mode()) return;
+    int top, bottom;
+    s3_video_canvas_rows(&top, &bottom);
     if (s_state == ST_OPTIONS) draw_options(line, out, width);
+    else if ((top || bottom) && s_bg) title_tall(line + top, out, width, 224 + top + bottom - (224 - BAND_TOP));
     else {
         draw_bg(line, out, width);
         draw_header(line, out, width);
@@ -587,10 +713,12 @@ static const uint32_t *ds_ground(int line, int width)
     }
     /* the pattern drifts up and to the left, a pixel every 4 frames */
     const Img *ti = s_ds_tile;
-    const uint32_t *src = ti->px + (size_t)((line + (int)(t / 4)) % ti->h) * ti->w;
+    const uint32_t *src = ti->px + (size_t)wrap(line + (int)(t / 4), ti->h) * ti->w;
     int ox = (int)(t / 4) % ti->w - (width - 320) / 2;
     for (int x = 0; x < width; x++) row[x] = src[((x + ox) % ti->w + ti->w) % ti->w];
-    if (s_ds_band) draw_img(s_ds_band, line, row, width, (width - s_ds_band->w) / 2, DS_BAND_Y);
+    int top, bottom;
+    s3_video_canvas_rows(&top, &bottom);              /* (a taller screen: at its foot) */
+    if (s_ds_band) draw_img(s_ds_band, line, row, width, (width - s_ds_band->w) / 2, DS_BAND_Y + bottom);
     if (k < 256)
         for (int x = 0; x < width; x++) row[x] = shade(row[x], k < 0 ? 0 : k);
     else if (k > 256)                                 /* (a fade from white) */

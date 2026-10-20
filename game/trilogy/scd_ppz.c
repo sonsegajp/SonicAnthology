@@ -840,6 +840,11 @@ void cd_spin_tag(uint32_t o)
             SET16(p, OBJ_ground_vel, d0);
             if (((OB8(p, OBJ_angle) + 0x20) & 0xC0) == 0x80) SET16(p, OBJ_ground_vel, -d0);
         } else if (sub == 1 || sub == 4) {
+            /* Stardust Speedway: a player who has caught the bend at a vertical
+             * tube's end (on a wall or ceiling, not in the air) rides it out;
+             * thrown up again he caught it every frame, stuck (x $2B70 of act 2) */
+            if (!(OB8(p, OBJ_status) & ST_AIR) && ((OB8(p, OBJ_angle) + 0x20) & 0xC0) &&
+                tri_zone() >= TRI_CD_ZONE(5, 0) && tri_zone() < TRI_CD_ZONE(6, 0)) continue;
             int16_t d0;
             if (sub == 1) {                                   /* up or down: at least $D00 */
                 d0 = vy < 0 ? -vy : vy;

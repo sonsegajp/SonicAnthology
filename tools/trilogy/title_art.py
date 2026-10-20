@@ -12,6 +12,8 @@ Writes uncompressed 32-bit TGA (what trilogy_title.c reads):
   title_confetti.tga  the ground's confetti, its own layer: 640 wide, the
                   rows from CONF_Y0 to the band, wrapping top to bottom (the
                   game scrolls it upwards)
+  title_confetti_open.tga  the same with no clearing for the logo, 256 rows:
+                  a taller screen's sky
   title_side.tga  the left margin's black saw-tooth band with a vertical
                   "SONIC" (Sonic 2's Japanese box), drawn at 16:9 and wider
   title_logo.tga  the Blender render (logo.blend) reduced to its 1x size,
@@ -210,6 +212,16 @@ def title_confetti(fonts):
     return img
 
 
+def title_confetti_open(fonts):
+    """the confetti with no clearing for the logo, at the margins' density:
+    the sky a taller screen adds, above and below the title's own (the game's
+    title and the Android setup screen); 256 rows, wrapping top to bottom"""
+    h = 256
+    img = Image.new('RGBA', (W, h), (0, 0, 0, 0))
+    confetti(img, random.Random(1994), [(4, 0, W - 4, h - 1)], 350, wrap=h)
+    return img
+
+
 def title_side(fonts):
     """Sonic 2's left band: black, a saw-tooth inner edge, vertical SONIC"""
     w = 40
@@ -371,6 +383,7 @@ def main():
     pics = {
         'title_bg': title_bg(fonts),
         'title_confetti': title_confetti(fonts),
+        'title_confetti_open': title_confetti_open(fonts),
         'title_side': title_side(fonts),
         'title_logo': title_logo(a.logo),
         'menu_bg': menu_bg(fonts),

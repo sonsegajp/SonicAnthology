@@ -335,6 +335,10 @@ int trilogy_instruction(uint32_t pc)
         scd_time_hook(pc);                           /* (Sonic CD's time travel) */
         /* (Sonic CD's level events set the camera's bottom outright, as its
          *  bosses' do: S3K's MoveCameraY clamps to it only while it is changing) */
+        if (pc == TH_LVL_POST_SPRITES || pc == TH_GAMELOOP) {
+            extern void tri_scd_music_follow(int level);
+            tri_scd_music_follow(pc == TH_LVL_POST_SPRITES && tri_cd_zone(tri_zone()));   /* (Sonic CD's music) */
+        }
         if (pc == TH_LVL_POST_SPRITES && tri_cd_zone(tri_zone()) &&
             (int16_t)r16(RAM_Camera_Y_pos) > (int16_t)r16(RAM_Camera_max_Y_pos))
             w8(RAM_Camera_max_Y_pos_changing, 1);

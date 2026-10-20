@@ -16,7 +16,7 @@ ROOT = TOOLS.parents[1]
 # the converters the bank build uses (dev-only tools stay out)
 MODULES = ['build_bank', 'act3_numeral', 'knux_walldash', 'mdcodecs', 'tilepack', 'previews',
            's1_objects', 's1_music', 's2_level', 's2_objects', 's2_music', 's2_sfx', 's2_dac',
-           's2_ending', 's2_special', 's3k_driver', 'scd_iso', 'scd_mmd', 'scd_level', 'scd_sfx', 'scd_special',
+           's1_sfx', 's2_ending', 's2_special', 's3k_driver', 'scd_iso', 'scd_mmd', 'scd_level', 'scd_sfx', 'scd_special',
            'rsdk', 'origins_pack']
 
 

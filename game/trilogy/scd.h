@@ -24,6 +24,7 @@ int  scd_cd_track(void);                  /* playing track, 0 none */
 int  scd_pcm_bank(const char *file);
 void scd_pcm_cmd(uint8_t id);             /* $81 past song, $B1.. voices, $E0.. commands */
 void scd_audio_reset(void);               /* silence everything (title, level exit) */
+void scd_audio_follow(const uint8_t *z80, int level);   /* each frame: held under S3K's songs, sped up by its speed-up */
 
 /* PCM sound ids (Sound Drivers/PCM/_Sound IDs.i) */
 enum {

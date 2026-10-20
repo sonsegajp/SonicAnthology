@@ -42,6 +42,11 @@ static int s_mode;
 static double s_ratio = 16.0 / 9.0;
 static int s_width, s_left, s_camera, s_stage_width, s_native_x, s_requested_width = 320;
 static int s_camera_y;
+/* A window taller than the picture's shape: rows above (s_top) and below
+ * (s_bottom) the native lines, the stage carried on as the widescreen sides
+ * are (extent); s_extra, their sum, follows the window (width). */
+enum { NATIVE_LINES=224 };
+static int s_top, s_bottom, s_extra;
 static unsigned s_frames, s_fallbacks, s_terrain_checks, s_terrain_errors;
 static unsigned s_bg_checks, s_bg_errors, s_bg_unstreamed;
 static unsigned s_scene_misses, s_scene_holds;
@@ -215,8 +220,37 @@ static int width(int dw, int dh, int nw, int nh)
     if (result > INT_MAX - 1.0) result = INT_MAX - 1.0;
     int pixels = (int)(result + 0.5);
     s_requested_width = pixels < nw ? nw : pixels;
+    s_extra = 0;
+#ifdef __ANDROID__   /* (an unfolded foldable, a tablet; a desktop window keeps the native height) */
+    if (dw > 0 && dh > 0 && s_mode != VIDEO_STAGE) {
+        int e = (int)((double)s_requested_width * dh / dw - nh + 0.5);
+        s_extra = e <= 0 ? 0 : e > 480 - nh ? 480 - nh : e;
+    }
+#endif
     return s_requested_width;
 }
+/* The rows above and below for the frame about to run: centred, or in a
+ * level kept inside the camera's vertical bounds (the view stops at the
+ * stage's top and bottom, as view_left stops at its sides). */
+static void extent(int *top, int *bottom)
+{
+    int t = s_extra / 2, mode = g_ram[0xF600] & 127;
+    if (!enabled() || ram16(S3_COMPETITION)) t = s_extra = 0;
+    else if (s_extra && (mode == 8 || mode == 12)) {
+        int cy = (int16_t)ram16(0xEE7C), lo = (int16_t)ram16(0xEE18), hi = (int16_t)ram16(0xEE1A);
+        if (lo >= 0 && hi >= lo) {                  /* (a stage that wraps vertically has no edge) */
+            if (s_extra - t > hi - cy) t = s_extra - (hi - cy);
+            if (t > cy - lo) t = cy - lo;
+            if (t < 0) t = 0;
+            if (t > s_extra) t = s_extra;
+        }
+    }
+    s_top = t;
+    s_bottom = s_extra - t;
+    *top = s_top;
+    *bottom = s_bottom;
+}
+void s3_video_canvas_rows(int *top, int *bottom) { *top = s_top; *bottom = s_bottom; }
 int s3_video_canvas_width(void) { return enabled()?s_requested_width:320; }
 
 /* Full 16-bit scroll is unwrapped against the live camera's 10-bit VDP
@@ -530,7 +564,7 @@ static void add_mapping(unsigned map,unsigned frame,unsigned gfx,unsigned flags,
         uint16_t attr=(uint16_t)(scene_read16(p+2)+gfx);
         if(flags&1){dx=-dx-(((size>>2)&3)+1)*8;attr^=0x800;}
         if(flags&2){dy=-dy-((size&3)+1)*8;attr^=0x1000;}
-        if(!s_add_rot && (y+dy>=224 || y+dy+((size&3)+1)*8<=0))continue;
+        if(!s_add_rot && (y+dy>=NATIVE_LINES+s_bottom || y+dy+((size&3)+1)*8<=-s_top))continue;
         SceneSprite *q=&s_build.sprites[s_build.count++];
         q->x=x+dx;q->y=y+dy;q->attr=attr;q->size=(uint8_t)size;q->hud=(uint8_t)anchor;
         q->rot=(uint16_t)s_add_rot;q->bank=(uint8_t)s_add_bank;q->slot=(uint8_t)s_add_slot;q->zoom=(uint16_t)s_add_zoom;
@@ -653,8 +687,8 @@ static void capture_objects(void)
         for(unsigned p=base+4;p<end;p+=4) {
             unsigned status=0xE700+(p-base)/2;
             if(ram16(status)&0x8000)continue;
-            int x=scene_read16(p),y=((scene_read16(p+2)-cy+8)&mask)-8;
-            if(x<left-16 || x>=left+s_requested_width+16 || y<-16 || y>=240)continue;
+            int x=scene_read16(p),y=((scene_read16(p+2)-cy+8+s_top)&mask)-8-s_top;
+            if(x<left-16 || x>=left+s_requested_width+16 || y<-16-s_top || y>=240+s_bottom)continue;
             unsigned fr=g_ram[status+1]?g_ram[status+1]:g_ram[0xFEB3];
             unsigned m=S3_RING_MAP+fr*8;
             if(s_build.count<SCENE_SPRITES) {
@@ -673,8 +707,9 @@ static void capture_objects(void)
             if(flags&4) {
                 x=(int16_t)(ram16(o+0x10)-cam);
                 int radius=g_ram[o+7],height=g_ram[o+6];
-                y=((ram16(o+0x14)-cy+height)&mask)-height;
-                if(x+radius<left-cam || x-radius>=left-cam+s_requested_width || y+height<0 || y-height>=224)continue;
+                y=((ram16(o+0x14)-cy+height+s_top)&mask)-height-s_top;
+                if(x+radius<left-cam || x-radius>=left-cam+s_requested_width ||
+                   y+height<-s_top || y-height>=NATIVE_LINES+s_bottom)continue;
                 if(s_visible_count<144)s_visible_objects[s_visible_count++]=o;
             } else {x=(int16_t)ram16(o+0x10)-128;y=(int16_t)ram16(o+0x14)-128;anchor=2;}
             unsigned map=scene_read32(0xFF0000u+o+0xC),gfx=ram16(o+0xA);
@@ -701,7 +736,7 @@ static void capture_objects(void)
                 for(unsigned n=0;n<count;++n) {
                     unsigned child=o+0x18+n*6;
                     int sx=(int16_t)ram16(child)-128,sy=(int16_t)ram16(child+2)-128;
-                    if(flags&4){sx=(int16_t)(ram16(child)-cam);sy=((ram16(child+2)-cy+128)&mask)-128;}
+                    if(flags&4){sx=(int16_t)(ram16(child)-cam);sy=((ram16(child+2)-cy+128+s_top)&mask)-128-s_top;}
                     add_mapping(map,g_ram[child+5],gfx,flags,sx,sy,anchor,0);
                 }
             } else {
@@ -875,6 +910,7 @@ static void draw_scene_sprites(const GVDP *v,int line,uint32_t *out,int width,
         int pw=s->art?s->art->w:cw*8,ph=s->art?s->art->h:ch*8;
         int world=!s->hud && s_display->scene==1;
         int y=s->y+(world?s_display->camera_y-s_camera_y:0);
+        if(s->hud==1)y+=s->y<112?-s_top:s_bottom;      /* (the HUD at the canvas's top and foot) */
         if(!s->rot && !s->zoom && !s_interp && (line<y || line>=y+ph))continue;
         int base=s->x+(s->hud==1?0:s->hud>=2?(width-320)/2:origin);
         /* Native camera scroll may advance while a completed host frame is
@@ -998,7 +1034,7 @@ static void aiz_palette(const AizArt *art,const GVDP *v,uint32_t *out)
  * latched VDP snapshot). Frame-wide flags come from the line-0 copies. */
 typedef struct {
     int level,special,file_select,bg_world,bg_canvas,aiz_fire,aiz_banks;
-    int origin,nw,hs_b,by,bg_width;
+    int origin,nw,hs_b,by,bg_width,sl,ext;
     unsigned base_b;
 } BgLine;
 static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_select,
@@ -1007,10 +1043,14 @@ static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_
     int bg_world=level && !special;
     L->level=level;L->special=special;L->file_select=file_select;L->origin=origin;L->nw=nw;
     L->base_b=(v->reg[4]&7u)<<13;
+    /* Rows beyond the native lines (extent) scroll as the nearest native
+     * line does; the stage's layout carries on at their own height. */
+    int sl=line<0?0:line>=NATIVE_LINES?NATIVE_LINES-1:line;
+    L->sl=sl;L->ext=sl!=line;
     unsigned hsbase=(v->reg[13]&63u)<<10;
-    int hmode=v->reg[11]&3,hi=hmode==0?0:hmode==2?line&~7:line;
+    int hmode=v->reg[11]&3,hi=hmode==0?0:hmode==2?sl&~7:sl;
     int hs_b=(int16_t)vram16(v,hsbase+(unsigned)hi*4+2);
-    if(s_interp && line<IX_LINES)hs_b=ix_lerp(s_ix[0].hs_b[line],s_ix[1].hs_b[line],128);
+    if(s_interp && sl<IX_LINES)hs_b=ix_lerp(s_ix[0].hs_b[sl],s_ix[1].hs_b[sl],128);
     /* The fire is a streamed Plane B composition, not the background at
      * the world's current layout coordinates. AIZ1BGE_FireTransition
      * writes rows from layout X=$1000 while replacing foreground blocks;
@@ -1040,7 +1080,10 @@ static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_
     int aiz_banks=bg_world && !s_frame_zone && !s_frame_act &&
         s_frame_bg_event<=8 && s_aiz_art_ready;
     int vs_b=s_interp?ix_lerp(s_ix[0].vs_b,s_ix[1].vs_b,128):v->vsram[1];
-    int by=bg_world?unwrap(vs_b,s_frame_bg_y)+line:line+(vs_b&1023);
+    /* (menus repeat their 224-line composition, as they do across; a
+     * streamed name-table canvas has only its native lines: the edge one) */
+    int menu_line=!level && !special && !file_select?(line%NATIVE_LINES+NATIVE_LINES)%NATIVE_LINES:line;
+    int by=bg_world?unwrap(vs_b,s_frame_bg_y)+(bg_canvas?sl:line):menu_line+(vs_b&1023);
     int bg_width=bg_world?((s_world_frame[0x8002]<<8)|s_world_frame[0x8003])*128:0;
     /* AIZ1's upper parallax bands are a fixed 512px canvas. Its layout
      * also stores the intro coastline and fire art farther right: those
@@ -1094,7 +1137,7 @@ static uint8_t bg_sample(const GVDP *v,const BgLine *L,int x,int line,uint16_t *
     uint16_t b=L->bg_world?world_attr(s_background_frame,background_x,by,1):plane_attr(v,L->base_b,bx,by);
     uint8_t bp=pattern_pixel(v,b,L->bg_world?background_x:bx,by);
     *pal=0;
-    if(L->file_select && (bx<0 || bx>=1024))bp=0;
+    if(L->file_select && (bx<0 || bx>=1024 || L->ext))bp=0;
     if(L->bg_canvas) {
         b=plane_attr(v,L->base_b,reference_bx,by);
         bp=pattern_pixel(v,b,reference_bx,by);
@@ -1108,7 +1151,7 @@ static uint8_t bg_sample(const GVDP *v,const BgLine *L,int x,int line,uint16_t *
             unsigned col=nx>=0 && nx<nw?(unsigned)nx/16:((unsigned)nx/16)&7;
             vs=col*2+1;
         }
-        int fire_y=line+(v->vsram[vs]&1023);
+        int fire_y=L->sl+(v->vsram[vs]&1023);
         b=plane_attr(v,L->base_b,reference_bx,fire_y);
         bp=pattern_pixel(v,b,reference_bx,fire_y);
     }
@@ -1317,14 +1360,17 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     /* Publish one immutable art/scroll snapshot per frame. Palettes stay
      * live so water-line HBlank colour changes are retained. */
     uint32_t palette[64],shadow[64],intro_palette[64],forest_palette[64];
-    int uniform_palette=1,ixl=line<IX_LINES?line:IX_LINES-1;
-    const uint16_t *cram=s_interp?s_ix[1].cram[ixl]:v->cram;
+    /* A row beyond the native lines (extent, native NULL) takes the nearest
+     * native line's palette and scroll; its plane rows are its own. */
+    int ext=line<0 || line>=NATIVE_LINES,sl=line<0?0:line>=NATIVE_LINES?NATIVE_LINES-1:line;
+    int uniform_palette=1,ixl=ext?sl:line<IX_LINES?line:IX_LINES-1;
+    const uint16_t *cram=s_interp || ext?s_ix[1].cram[ixl]:v->cram;
     for(int i=0;i<64;++i) {
         palette[i]=genesis_dac_cram_to_argb(cram[i],GENESIS_DAC_NORMAL);
         shadow[i]=genesis_dac_cram_to_argb(cram[i],GENESIS_DAC_SHADOW);
         if(palette[i]!=palette[0])uniform_palette=0;
     }
-    if(!s_interp) {                          /* (record what this real frame uses) */
+    if(!s_interp && !ext) {                  /* (record what this real frame uses) */
         if(line==0)s_ix[0]=s_ix[1];
         memcpy(s_ix[1].cram[ixl],v->cram,sizeof s_ix[1].cram[ixl]);
         if(nw<=IX_NATIVE)memcpy(s_ix_native[ixl],native,(size_t)nw*sizeof *native);
@@ -1387,18 +1433,18 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * A rare unsupported mode also retains the selected output dimensions. */
     if((nw!=320 && nw!=256) || !(v->reg[1]&64) || (v->reg[12]&6) ||
        ((v->reg[12]&8) && !s_frame_special) || s_priority_capacity<width) {
-        uint32_t fill=!(v->reg[1]&64)?native[0]:backdrop;
+        uint32_t fill=!(v->reg[1]&64) && native?native[0]:backdrop;
         for(int x=0;x<width;++x)out[x]=fill;
         int x0=(width-nw)/2;
-        if(x0>=0)memcpy(out+x0,native,(size_t)nw*sizeof(uint32_t));
+        if(x0>=0 && native)memcpy(out+x0,native,(size_t)nw*sizeof(uint32_t));
         if(line==0 && !s_interp){++s_fallbacks;s_native_x=x0;}
         return;
     }
     unsigned hsbase=(v->reg[13]&63u)<<10;
-    int hmode=v->reg[11]&3,hi=hmode==0?0:hmode==2?line&~7:line;
+    int hmode=v->reg[11]&3,hi=hmode==0?0:hmode==2?sl&~7:sl;
     int hs_a=(int16_t)vram16(v,hsbase+(unsigned)hi*4);
     int hs_b=(int16_t)vram16(v,hsbase+(unsigned)hi*4+2);
-    if(!s_interp){s_ix[1].hs_a[ixl]=(int16_t)hs_a;s_ix[1].hs_b[ixl]=(int16_t)hs_b;}
+    if(!s_interp){if(!ext){s_ix[1].hs_a[ixl]=(int16_t)hs_a;s_ix[1].hs_b[ixl]=(int16_t)hs_b;}}
     else {hs_a=ix_lerp(s_ix[0].hs_a[ixl],hs_a,128);hs_b=ix_lerp(s_ix[0].hs_b[ixl],hs_b,128);}
     if(s_frame_special && ss_ready) {
         if(line==0 && !s_interp){++s_frames;s_native_x=(width-nw)/2;}
@@ -1431,7 +1477,18 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
      * holds the complete 1024px card strip (128 tiles per row).
      * Use the installed layout through both entry and exit fades. */
     int file_select=!level && file_select_layout(v);
-    int wy=camera_y+line;
+    int wy=camera_y+line,pl=ext?sl:line;   /* (pl: a name-table row; only native ones are uploaded) */
+    if(ext && level && g_ram[0xF730]) {
+        /* Water (Water_flag): the H-int palette swap never reaches these
+         * rows. Above the water line Normal_palette, below Water_palette. */
+        unsigned src=wy>=(int16_t)ram16(0xF646)?0xF080u:0xFC00u;
+        for(int i=0;i<64;++i) {
+            uint16_t c=(uint16_t)ram16(src+(unsigned)i*2);
+            palette[i]=genesis_dac_cram_to_argb(c,GENESIS_DAC_NORMAL);
+            shadow[i]=genesis_dac_cram_to_argb(c,GENESIS_DAC_SHADOW);
+        }
+        backdrop=palette[v->reg[7]&63];
+    }
     BgLine L;
     bg_line_setup(v,line,level,special,file_select,origin,nw,&L);
     int bg_world=L.bg_world,aiz_fire=L.aiz_fire,bg_canvas=L.bg_canvas,aiz_banks=L.aiz_banks;
@@ -1443,7 +1500,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         ((s_frame_act==0 && s_frame_bg_event>=0x10) ||
          (s_frame_act==1 && s_frame_bg_event==0));
     if(aiz_banks){aiz_palette(&s_aiz_intro,v,intro_palette);aiz_palette(&s_aiz_main,v,forest_palette);}
-    int blur=s_bg_blur && level && blur_prepare(v,line,width,&L,camera,palette,
+    int blur=s_bg_blur && level && !s_extra && blur_prepare(v,line,width,&L,camera,palette,
         aiz_banks?intro_palette:NULL,aiz_banks?forest_palette:NULL,backdrop);
     /* A game-supplied Data Select ground stands in for the Window (the
      * portrait and its DATA SELECT title) and the backdrop. The card strip
@@ -1460,11 +1517,12 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     for(int x=0;x<width;++x) {
         int nx=x-origin,wx=level?nx+camera:nx-hs_a;
         int reference_bx=nx-hs_b;
-        uint16_t a=level?world_attr(s_world_frame,wx,wy,0):plane_attr(v,base_a,nx-hs_a,line+(v->vsram[0]&1023));
+        uint16_t a=level?world_attr(s_world_frame,wx,wy,0):plane_attr(v,base_a,nx-hs_a,pl+(v->vsram[0]&1023));
         uint16_t b;int bpal;
         uint8_t bp=blur?blur_cached(line,x,width,&b,&bpal):bg_sample(v,&L,x,line,&b,&bpal);
-        uint8_t ap=pattern_pixel(v,a,level?wx:nx-hs_a,level?wy:line+(v->vsram[0]&1023));
-        if(file_select) {
+        uint8_t ap=pattern_pixel(v,a,level?wx:nx-hs_a,level?wy:pl+(v->vsram[0]&1023));
+        if(file_select && ext){a=0;ap=0;}
+        if(file_select && !ext) {
             /* Reflect only the portrait at its edges, retaining its native
              * pixel scale and a continuous backdrop at every aspect ratio.
              * The carousel is finite: never wrap Delete back to No Save. */
@@ -1486,8 +1544,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         const uint32_t *apalette=palette;
         const uint32_t *bpalette=bpal==1?intro_palette:bpal==2?forest_palette:palette;
         if(aiz_fire_fg) {
-            a=plane_attr(v,base_a,nx-hs_a,line+(v->vsram[0]&1023));
-            ap=pattern_pixel(v,a,nx-hs_a,line+(v->vsram[0]&1023));
+            a=plane_attr(v,base_a,nx-hs_a,pl+(v->vsram[0]&1023));
+            ap=pattern_pixel(v,a,nx-hs_a,pl+(v->vsram[0]&1023));
         }
         if(aiz_banks && (nx<0 || nx>=nw)) {
             /* The hollow tree at $1300 shares primary blocks across both
@@ -1509,7 +1567,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
          * in Plane A. Use that published composition, including its mask
          * and priority, instead of jumping between the coarse chunk edits.
          * The rest of the expanded world still comes from its own layout. */
-        if(bg_world && !s_frame_zone && !s_frame_act && s_frame_tree_reveal &&
+        if(bg_world && !ext && !s_frame_zone && !s_frame_act && s_frame_tree_reveal &&
            wx>=0x2C80 && wx<0x2D80 && wy>=0x280 && wy<0x480) {
             int ax=nx-hs_a,ay=line+(v->vsram[0]&1023);
             a=plane_attr(v,base_a,ax,ay);
@@ -1519,7 +1577,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         if(level && (wx<0 || wx>=s_stage_width))ap=0;
         /* Menus have a centered foreground composition, with full-width
          * scenery underneath. Special-stage planes are repeating art. */
-        if(!level && !file_select && (nx<0 || nx>=nw))ap=0;
+        if(!level && !file_select && (nx<0 || nx>=nw || ext))ap=0;
         s_priority[x]=(uint8_t)(((a&0x8000)&&ap)||((b&0x8000)&&bp));
         /* The authored transition viewport has no high-priority tree
          * canopy in front of its flame curtain. Expanded margins do: let
@@ -1530,8 +1588,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         uint8_t p=foreground?ap:bp;
         out[x]=p?(foreground?apalette[p]:bpalette[p]):backdrop;
         if(p && p<16) {   /* extended line on a line-0 plane tile (game-added art keeping its own colours) */
-            int ext=gvdp_ext_line((foreground?a:b)&2047u);
-            if(ext)out[x]=genesis_dac_cram_to_argb(gvdp_ext_color(line,ext,p),GENESIS_DAC_NORMAL);
+            int el=gvdp_ext_line((foreground?a:b)&2047u);
+            if(el)out[x]=genesis_dac_cram_to_argb(gvdp_ext_color(sl,el,p),GENESIS_DAC_NORMAL);
         }
         if(blur)s_blur_mask[x]=(uint8_t)!foreground;
         /* Outside a native special-stage projection only planes are drawn,
@@ -1539,7 +1597,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
          * determines shadow; native operator sprites remain in the center. */
         if(special && (v->reg[12]&8) && !s_priority[x])
             out[x]=shadow[p?p:v->reg[7]&63];
-        if(nx>=0 && nx<nw && !(x&7) && !missing_scroll && !s_interp) {
+        if(nx>=0 && nx<nw && !ext && !(x&7) && !missing_scroll && !s_interp) {
             if(level && !native_terrain_streamed(wy,s_frame_fg_y)) {
                 ++s_terrain_unstreamed;
             } else if(level && !aiz_fire_fg) {
@@ -1584,8 +1642,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     if(!level) {
         /* Logos/copyright/menus remain centered at their original pixel
          * scale. The full-width background follows the live scene palette. */
-        if(origin>=0)memcpy(out+origin,native,(size_t)nw*sizeof(uint32_t));
-        if(ground)
+        if(origin>=0 && native)memcpy(out+origin,native,(size_t)nw*sizeof(uint32_t));
+        if(ground && native)
             for(int x=origin<0?0:origin;x<origin+nw && x<width;++x)
                 if(out[x]==s_fs_expect[x])out[x]=s_fs_repl[x];
         if(((g_ram[0xF600]&127)==4 || file_select) && s_display && s_display->scene==0)
@@ -1599,7 +1657,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         /* No matching DMA yet (e.g. load/fade): preserve the live native
          * scene while the host display list catches its next publication. */
         int first=origin<0?-origin:0,last=origin+nw>width?width-origin:nw;
-        if(last>first)memcpy(out+origin+first,native+first,(size_t)(last-first)*sizeof(uint32_t));
+        if(last>first && native)memcpy(out+origin+first,native+first,(size_t)(last-first)*sizeof(uint32_t));
     }
 }
 
@@ -1688,11 +1746,13 @@ static int interpolate(double t, uint32_t *frame, int stride, int height)
 {
     if(!enabled() || s_ix[1].lines<=0 || s_ix[0].lines!=s_ix[1].lines ||
        s_ix[0].width!=s_ix[1].width || s_ix[1].width!=s_width || s_ix_nw>IX_NATIVE)return 0;
-    int lines=height<s_ix[1].lines?height:s_ix[1].lines;
+    int native=s_ix[1].lines,lines=native+s_top+s_bottom;
+    if(lines>height)lines=height;
     s_interp=1;s_ix_t=(float)(t<0?0:t>1?1:t);
-    for(int line=0;line<lines;++line) {
-        uint32_t *row=frame+(size_t)line*stride;
-        scanline(&s_video_frame,line,s_ix_native[line],s_ix_nw,row,s_width);
+    for(int r=0;r<lines;++r) {                      /* (rows: s_top beyond the native lines first) */
+        int line=r-s_top;
+        uint32_t *row=frame+(size_t)r*stride;
+        scanline(&s_video_frame,line,line>=0 && line<native?s_ix_native[line]:NULL,s_ix_nw,row,s_width);
         overlay_scanline(&s_video_frame,line,row,s_width);
     }
     s_interp=0;
@@ -1714,4 +1774,4 @@ static int interpolate(double t, uint32_t *frame, int stride, int height)
     }
     return 1;
 }
-const GameVideo sonic3_video = { configure, enabled, width, scanline, overlay_scanline, interpolate };
+const GameVideo sonic3_video = { configure, enabled, width, scanline, overlay_scanline, interpolate, extent };

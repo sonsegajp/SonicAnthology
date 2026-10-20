@@ -148,6 +148,7 @@ enum {
 #define TRI_BLOB_S2_DAC         51  /* Sonic 2's DAC samples: u8 bank, u8 first S3K id, u8 count (s2_dac.py) */
 #define TRI_BLOB_S2_CNZ_BUMPERS 52  /* u16 offset of act 2's list; act 1's (after a 0,0,0 marker), act 2's: SpecialCNZBumpers (id, x, y words; x $FFFF ends) */
 #define TRI_BLOB_KNUX_WALLDASH 53  /* Knuckles' spin dash frames + spin dash dust turned a quarter (knux_walldash.py) */
+#define TRI_BLOB_S1_SFX         54  /* the Sonic 1 sound set: u8 bank, $AD x u16 SFX pointers ($33-$DF), $31 x u8 S3K id per S1 sound $A0-$D0 */
 #define TRI_BLOB_S2_ENDING      48  /* Sonic 2's ending: art, maps, palettes, credits (s2_ending.py) */
 #define TRI_BLOB_S2_WFZ_PALCYC  47  /* S2 CyclingPal_WFZFire (0), WFZBelt ($20), WFZ1 ($40), WFZ2 ($84) */
 #define TRI_BLOB_S2_MTZ_TUBES   44  /* S2 Obj67 spin-tube paths (off_273F2: offsets, then count + x,y points) */
@@ -256,6 +257,7 @@ void     tri_sound_set_for_zone(void);    /* the current zone's game's */
 int      tri_sound_set_foreign(void);     /* 1: not S3K's own set in the driver */
 int      tri_scd_sound_set_on(void);      /* 1: Sonic CD's set in the driver */
 int      tri_s2_sfx_id(int sndid);        /* S2 SndID -> S3K id in the S2 set (0: none) */
+int      tri_s1_sfx_id(int id);           /* S1 sfx id ($A0-$D0) -> S3K id in the S1 set (0: none) */
 int      tri_scd_sfx_id(int fm);          /* Sonic CD FM id -> S3K id in the CD set (0: none) */
 
 /* ---- module entry points ------------------------------------------------ */

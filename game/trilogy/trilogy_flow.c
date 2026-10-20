@@ -11,6 +11,7 @@
 #include "scd.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* (zone<<8|act) sequence of the Sonic 1 campaign.
  * S1 internals: SBZ act 3 is "LZ act 4", Final Zone is "SBZ act 3". */
@@ -202,6 +203,8 @@ static void sbz2_after_tally(void)
         tri_jsr(S3K_Restore_PlayerControl2);
     }
     uint32_t sign = find_obj(NATIVE_S1_BASE + 0x0D * 4);
+    if (!sign && (sign = find_obj(S3K_Obj_EndSign)) != 0)   /* (passed: S3K's now; back to standing there) */
+        SET32(sign, OBJ_code, NATIVE_S1_BASE + 0x0D * 4);
     if (sign) SET8(sign, OBJ_routine, 10);           /* no more end poses */
     tri_music_play(TRI_SLOT_ZONE, 0x8D);              /* bgm_FZ */
     tri_sbz2_open = 1;
@@ -316,9 +319,41 @@ static void runoff_tick(void)
     }
 }
 
+static int old_spring(void)                          /* (a Sonic 1 or CD zone's spring) */
+{
+    if (!tri_dir()) return 0;
+    int g = tri_rd8(tri_dir() + TD_GAME);
+    return g == TRI_GAME_S1 || g == TRI_GAME_CD;
+}
+
+/* An up spring catches a player falling onto it however fast: S3K's solid
+ * check lands one only less than 16 px in, deeper is a side hit or nothing
+ * (Stardust Speedway's tubes drop Sonic $1A px a frame onto springs: pushed
+ * aside, wedged; or caught first by the block the spring stands on, inside
+ * it). Centre above the spring's, inside its $1B: on its top, where the
+ * solid check lands him (RideObject_SetRide moves him off another object) */
+static void spring_catch(uint32_t o)
+{
+    int16_t sx = (int16_t)r16(o + OBJ_x_pos), top = (int16_t)(r16(o + OBJ_y_pos) - 8);
+    for (int n = 0; n < 2; n++) {
+        uint32_t p = n ? RAM_Player_2 : RAM_Player_1;
+        uint8_t st = r8(p + OBJ_status);
+        if (st & 2 ? (int16_t)r16(p + OBJ_y_vel) <= 0                        /* (in the air, falling, */
+                   : !(st & 8) || (0xFF0000u | r16(p + 0x42)) == o) continue; /*  or on another object) */
+        int16_t dx = (int16_t)(r16(p + OBJ_x_pos) - sx), py = (int16_t)r16(p + OBJ_y_pos);
+        int yr = (int8_t)r8(p + OBJ_y_radius);
+        if (dx < -0x1B || dx >= 0x1B || py >= top + 8 || py + yr <= top) continue;
+        w16(p + OBJ_y_pos, (uint16_t)(top - yr));
+    }
+}
+
+int tri_endsign_fall(void);
+
 int tri_flow_hook(uint32_t pc)
 {
     switch (pc) {
+    case TH_ENDSIGN_FALL:           /* S3K's act signs: standing, no fall (below) */
+        return tri_endsign_fall();
     case TH_ENDING_POSE: {
         uint32_t a1 = A(1) & 0xFFFFFFu;
         int bit = a1 == RAM_Player_1 ? 1 : a1 == RAM_Player_2 ? 2 : 0;
@@ -381,6 +416,39 @@ int tri_flow_hook(uint32_t pc)
             if (g == TRI_GAME_S1 || g == TRI_GAME_CD) return 1;
         }
         return 0;
+    case TH_SPRING_UP:              /* Sonic 1 and CD springs (up, diagonal) let go of the */
+    case TH_SPRING_DIAG:            /* player they fire (S3K's stay stood on: a player who */
+        if (old_spring()) {         /* lands on a curved ceiling at once is pulled back and fired again) */
+            uint32_t o = A(0) & 0xFFFFFF;
+            w8(o + OBJ_status, r8(o + OBJ_status) & ((A(1) & 0xFFFFFF) == RAM_Player_1 ? ~0x08 : ~0x10));
+        }
+        return 0;
+    case TH_SPRING_UP_SOLID:        /* ... and while one bounces (9 frames) it is not solid */
+    case TH_SPRING_DIAG_SOLID:      /* (Spring_AniUp; CD's sjumpmove2, sjump3move2) */
+        if (r8((A(0) & 0xFFFFFF) + OBJ_anim) == (pc == TH_SPRING_UP_SOLID ? 1 : 5) && old_spring()) {
+            A(1) = S3K_Ani_Spring;          /* (the rest of Obj_Spring_Up / _UpDiag) */
+            tri_jsr(S3K_Animate_Sprite);
+            if (pc == TH_SPRING_UP_SOLID)
+                tri_jsr(S3K_Sprite_OnScreen_Test);
+            else {
+                D(0) = (D(0) & 0xFFFF0000u) | r16((A(0) & 0xFFFFFF) + 0x32);
+                tri_jsr(S3K_Sprite_OnScreen_Test2);
+            }
+            return 1;
+        }
+        if (pc == TH_SPRING_UP_SOLID && old_spring()) spring_catch(A(0) & 0xFFFFFF);
+        return 0;
+    case TH_SPRING_SIDE_P1:         /* Sonic 1 and CD sideways springs fire pushed from either */
+    case TH_SPRING_SIDE_P2:         /* side, the way they point (Spring_LR, CD's sdushmove);   */
+        if (old_spring()) D(1) &= ~1u;   /* S3K's only from in front (one wedged behind stayed) */
+        return 0;
+    case TH_SPRING_SIDE_GV:         /* (its push as ground speed: upside down that runs the */
+        if (old_spring()) {         /*  other way, into the spring's back and out past it)  */
+            uint32_t p = A(1) & 0xFFFFFF;
+            if (!(r8(p + OBJ_status) & 2) && ((r8(p + 0x26) + 0x20) & 0xC0) == 0x80)   /* (angle: a ceiling) */
+                w16(p + 0x1C, (uint16_t)-(int16_t)r16(p + 0x1C));                     /* ground_vel */
+        }
+        return 0;
     case TH_STARS_TOUCH:            /* the star circle: Sonic 2's special stage, not a bonus stage */
         if (tri_dir()) {
             extern int tri_ss_stars_touch(void);
@@ -393,105 +461,170 @@ int tri_flow_hook(uint32_t pc)
 }
 
 /* ------------------------------------------------------------------------
- * Object 0D - Sonic 1 signpost (transcribed): stands in the level, spins
- * when passed, then hands over to the Sonic 3 results tally exactly as
- * Obj_EndSign does once it has landed.
+ * The end-of-act signpost, every game's: Sonic 3's. Sonic 1's and Sonic 2's
+ * (Object 0D) and Sonic CD's ($17) stand where their games put them; by
+ * request each is Sonic 3's sign (Map_EndSigns, its faces, its stub), still
+ * standing: Robotnik's face until the player passes, then S3K's own
+ * Obj_EndSign takes over as if it had just landed (its spin, the player's
+ * face, its results and after-act flow). Sonic 3's own act signs no longer
+ * fall either (TH_ENDSIGN_FALL: stood on the floor, spinning).
+ * The sign's faces load at ArtTile_EndSigns (DPLC), over the springs' art
+ * ($4A4-$4C3, S3K's sign only ever shows at an act's end): while a spring is
+ * in view the waiting sign keeps its art out (Sonic CD's Quartz Quadrant 2
+ * and Stardust Speedway 2 have one within a widescreen of it) and puts the
+ * springs' art back if it had it in.
  * ---------------------------------------------------------------------- */
-#define SIGN_SPINTIME   0x30    /* spintime */
-#define SIGN_SPARKTIME  0x32    /* sparkletime */
-#define SIGN_SPARKID    0x34    /* sparkle_id */
+#define SIGN_ANIM       0x30    /* (long) Obj_EndSign's raw animation */
+#define SIGN_TIME       0x2E    /* Obj_EndSign: frames it spins on landing */
+#define SIGN_LANDED     0x38    /* Obj_EndSign: bit 0, landed */
+#define SIGN_DPLC       0x3A    /* Perform_DPLC: the frame loaded */
+#define SIGN_STUB       0x3C    /* the stub's RAM address */
+#define SIGN_SHOWN      0x3E    /* its art is in */
+#define SIGN_SPIN       120     /* frames it spins once passed (S3K's: its fall, then $40) */
+#define SIGN_EGGMAN     3       /* Map_EndSigns: Robotnik's face */
+#define RAM_Signpost_addr 0xFFFAA6u
 
-static const int8_t sign_spark_pos[16] = {
-    -0x18, -0x10,  8, 8,  -0x10, 0,  0x18, -8,  0, -8,  0x10, 0,  -0x18, 8,  0x18, 0x10,
-};
-
-/* Sign_Spin's sparkles: S3K's ring object in its sparkle routine, which is
- * what S1 used too (id_Rings, routine 6). */
-static void sign_sparkle(uint32_t o)
+static int spring_in_view(void)                 /* (S3K's springs: art at $4A4, $4B4) */
 {
-    if ((int16_t)(OB16(o, SIGN_SPARKTIME) - 1) >= 0) {
-        SET16(o, SIGN_SPARKTIME, OB16(o, SIGN_SPARKTIME) - 1);
-        return;
+    int cx = (int16_t)r16(RAM_Camera_X_pos), cy = (int16_t)r16(RAM_Camera_Y_pos);
+    for (uint32_t s = 0; s < 110; s++) {
+        uint32_t o = 0xFFB000u + s * OBJ_SIZE;
+        if (!r32(o)) continue;
+        unsigned t = r16(o + OBJ_art_tile) & 0x7FF;
+        if (t != 0x4A4 && t != 0x4B4) continue;
+        int dx = (int16_t)r16(o + OBJ_x_pos) - cx, dy = (int16_t)r16(o + OBJ_y_pos) - cy;
+        if (dx > -0x40 && dx < 0x200 && dy > -0x40 && dy < 0x120) return 1;
     }
-    SET16(o, SIGN_SPARKTIME, 0x0B);
-    int d0 = OB8(o, SIGN_SPARKID);
-    SET8(o, SIGN_SPARKID, (uint8_t)((d0 + 2) & 0x0E));
-    uint32_t a1 = o_alloc();
-    if (!a1) return;
-    SET32(a1, OBJ_code, S3K_Obj_Ring);
-    SET8(a1, OBJ_routine, 6);                 /* Obj_RingSparkle */
-    SET16(a1, OBJ_x_pos, (uint16_t)(OB16(o, OBJ_x_pos) + sign_spark_pos[d0]));
-    SET16(a1, OBJ_y_pos, (uint16_t)(OB16(o, OBJ_y_pos) + sign_spark_pos[d0 + 1]));
-    SET32(a1, OBJ_mappings, S3K_Map_Ring);
-    SET16(a1, OBJ_art_tile, 0x2000 | 0x6BC);  /* make_art_tile(ArtTile_Ring,1,0) */
-    SET8(a1, OBJ_render, 4);
-    SET16(a1, OBJ_priority, 2 << 7);
-    SET8(a1, OBJ_width_px, 8);
+    return 0;
 }
 
-/* Sonic 2 (Obj0D) is the same sign with its own art; S2 has none in second
- * acts (a capsule ends those) except Metropolis 2. */
-static int sign_asset(void)
+/* down (or up) onto the floor, as Obj_EndSignFall lands (y_radius $1E) */
+static void sign_to_floor(uint32_t o)
 {
-    return tri_rd8(tri_dir() + TD_GAME) == TRI_GAME_S2 ? S2A_SIGNPOST : S1A_SIGN;
+    for (int k = 0; k < 48; k++) {
+        A(0) = RAMPTR(o);
+        tri_jsr(S3K_ObjCheckFloorDist);
+        int d = (int16_t)D(1);
+        if (!d) break;
+        SET16(o, OBJ_y_pos, (uint16_t)(OBS16(o, OBJ_y_pos) + (d > 16 ? 16 : d < -16 ? -16 : d)));
+    }
 }
 
-static void s1_signpost(uint32_t o)
+static void sign_show(uint32_t o)               /* (its art in: faces by DPLC, the stub, the stub's art) */
 {
-    if (!OB8(o, OBJ_routine) && tri_rd8(tri_dir() + TD_GAME) == TRI_GAME_S2
+    SET8(o, SIGN_SHOWN, 1);
+    SET8(o, SIGN_DPLC, 0xFF);
+    A(1) = S3K_PLC_EndSignStuff;
+    tri_jsr(S3K_Load_PLC_Raw);
+    if (OB16(o, SIGN_STUB)) return;
+    A(0) = RAMPTR(o);
+    A(2) = S3K_Child1_EndSignStub;
+    tri_jsr(S3K_CreateChild1_Normal);          /* (the stub at the bottom of the sign) */
+    uint32_t c = A(1) & 0xFFFFFF;
+    if (r32(c) == S3K_Obj_SignpostStub) SET16(o, SIGN_STUB, (uint16_t)c);
+}
+
+static void sign_hide(uint32_t o)               /* (the springs' art back) */
+{
+    SET8(o, SIGN_SHOWN, 0);
+    A(1) = S3K_PLC_SpikesSprings;
+    tri_jsr(S3K_Load_PLC_Raw);
+}
+
+static void sign_draw(uint32_t o)
+{
+    A(0) = RAMPTR(o);
+    A(2) = S3K_PLCPtr_EndSigns;
+    tri_jsr(S3K_Perform_DPLC);
+    o_draw(o);
+}
+
+static void s3_sign(uint32_t o)
+{
+    if (!OB8(o, OBJ_routine) && tri_dir() && tri_rd8(tri_dir() + TD_GAME) == TRI_GAME_S2
         && tri_act() && !(tri_zone() == TRI_S2_MTZ && tri_act() == 1)) {
-        o_delete(o);
+        o_delete(o);                            /* (Sonic 2: a capsule ends its second acts, but Metropolis 2) */
         return;
     }
     switch (OB8(o, OBJ_routine)) {
-    case 0:                                     /* Sign_Main */
+    case 0:                                     /* (Obj_EndSignInit, standing) */
         SET8(o, OBJ_routine, 2);
-        o_init(o, sign_asset(), 4, 4, 0x18, 0x20);
+        SET32(o, OBJ_mappings, S3K_Map_EndSigns);
+        SET16(o, OBJ_art_tile, 0x04AC | (r16(RAM_Player_1 + OBJ_art_tile) & 0x8000));   /* (ArtTile_EndSigns; the player's priority) */
+        SET16(o, OBJ_priority, 0x300);
+        SET8(o, OBJ_width_px, 0x18);
+        SET8(o, OBJ_height_px, 0x10);
+        SET8(o, OBJ_render, OB8(o, OBJ_render) | 4);
+        SET8(o, OBJ_frame, SIGN_EGGMAN);
+        SET8(o, OBJ_x_radius, 0x18);
+        SET8(o, OBJ_y_radius, 0x1E);
+        SET32(o, SIGN_ANIM, r16(RAM_Player_mode) == 3 ? S3K_AniRaw_EndSigns2 : S3K_AniRaw_EndSigns1);
+        SET16(o, SIGN_STUB, 0);
+        SET8(o, SIGN_SHOWN, 0);
+        sign_to_floor(o);
         /* fall through */
-    case 2: {                                   /* Sign_Touch */
+    case 2: {                                   /* waiting: passed, it turns into S3K's, landed */
+        int spring = spring_in_view();
+        if (spring && OB8(o, SIGN_SHOWN)) sign_hide(o);
+        else if (!spring && !OB8(o, SIGN_SHOWN)) sign_show(o);
         int16_t dx = (int16_t)(r16(RAM_Player_1 + OBJ_x_pos) - OB16(o, OBJ_x_pos));
         if (dx >= 0 && dx < 0x20) {
+            if (!OB8(o, SIGN_SHOWN)) sign_show(o);
             o_sfx(0xB8);                        /* sfx_Signpost */
             w8(RAM_Update_HUD_timer, 0);        /* stop time counter */
             w16(RAM_Camera_min_X_pos, r16(RAM_Camera_max_X_pos));
-            SET8(o, OBJ_routine, 4);
+            w16(RAM_Signpost_addr, (uint16_t)o);
+            SET32(o, OBJ_code, S3K_Obj_EndSign);
+            SET8(o, OBJ_routine, 4);            /* Obj_EndSignLanded: spins, then the face */
+            SET8(o, SIGN_LANDED, OB8(o, SIGN_LANDED) | 1);
+            SET16(o, SIGN_TIME, SIGN_SPIN);
+            SET8(o, OBJ_anim_frame, 0);
+            SET8(o, OBJ_anim_timer, 0);
+            sign_draw(o);
+            return;
         }
-        break;
+        if (OB8(o, SIGN_SHOWN)) {
+            SET8(o, SIGN_DPLC, 0xFF);           /* (every frame: a level PLC still coming in, */
+            sign_draw(o);                       /*  springs' and all, writes over the faces) */
+        }
+        if (o_out_of_range(o, OB16(o, OBJ_x_pos))) {
+            uint32_t stub = OB16(o, SIGN_STUB) ? 0xFF0000u | OB16(o, SIGN_STUB) : 0;
+            if (stub && r32(stub) == S3K_Obj_SignpostStub) o_delete(stub);
+            if (OB8(o, SIGN_SHOWN)) sign_hide(o);
+            o_delete_respawnable(o);
+        }
+        return;
     }
-    case 4:                                     /* Sign_Spin */
-        SET16(o, SIGN_SPINTIME, OB16(o, SIGN_SPINTIME) - 1);
-        if ((int16_t)OB16(o, SIGN_SPINTIME) < 0) {
-            SET16(o, SIGN_SPINTIME, 60);
-            SET8(o, OBJ_anim, OB8(o, OBJ_anim) + 1);
-            if (OB8(o, OBJ_anim) == 3) {
-                SET8(o, OBJ_routine, 6);
-                w8(RAM__unkFABE, 0xFF);         /* as Obj_EndSignLanded */
-                w8(RAM_Ctrl_2_locked, 0xFF);
-            }
-        }
-        sign_sparkle(o);
-        break;
-    case 6:                                     /* -> Obj_EndSignResults */
-        if (!(r8(RAM_Player_1 + OBJ_status) & 2)) {
-            SET8(o, OBJ_routine, 8);
-            A(1) = RAMPTR(RAM_Player_1);
-            A(0) = RAMPTR(o);
-            tri_jsr(S3K_Set_PlayerEndingPose);
-            uint32_t a1 = o_alloc();
-            if (a1) SET32(a1, OBJ_code, S3K_Obj_LevelResults);
-        }
-        break;
-    case 8:                                     /* Obj_EndSignAfter */
+    case 8:                                     /* Obj_EndSignAfter (the giant ring's tally) */
         A(0) = RAMPTR(o);
         tri_jsr(S3K_Check_TailsEndPose);
         break;
     default:                                    /* SBZ2: the act goes on */
         break;
     }
-    o_animate(o, o_asset_anim(sign_asset()));
-    if (o_asset_ready(sign_asset())) o_draw(o);         /* S2: art comes in at the camera lock */
-    if (OB8(o, OBJ_routine) == 2 && o_out_of_range(o, OB16(o, OBJ_x_pos)))
-        o_delete_respawnable(o);
+    if (OB8(o, SIGN_SHOWN)) sign_draw(o);
+}
+
+void tri_s3_sign(uint32_t o) { s3_sign(o); }  /* (Sonic CD's $17) */
+
+/* S3K's own act signs: on their first falling frame, stood on the floor
+ * under where they would land (as Obj_EndSignFall finds it, from a fifth
+ * of the screen down), spinning as if just landed */
+int tri_endsign_fall(void)
+{
+    uint32_t regs_d[8], regs_a[8];
+    memcpy(regs_d, &D(0), sizeof regs_d); memcpy(regs_a, &A(0), sizeof regs_a);
+    uint32_t o = A(0) & 0xFFFFFF;
+    SET16(o, OBJ_y_pos, (uint16_t)(r16(RAM_Camera_Y_pos) + 0x50));
+    sign_to_floor(o);
+    if (r8(RAM_Current_zone) == 8 && OBS16(o, OBJ_y_pos) > 0x9F2) SET16(o, OBJ_y_pos, 0x9F2);   /* (Sandopolis 1's sand) */
+    SET8(o, OBJ_routine, 4);
+    SET8(o, SIGN_LANDED, OB8(o, SIGN_LANDED) | 1);
+    SET16(o, SIGN_TIME, SIGN_SPIN);
+    if (getenv("TRILOGY_SIGNTEST")) fprintf(stderr, "[sign] S3K sign stood at %04X,%04X (camera %04X,%04X)%c",
+        OB16(o, OBJ_x_pos), OB16(o, OBJ_y_pos), r16(RAM_Camera_X_pos), r16(RAM_Camera_Y_pos), 10);
+    memcpy(&D(0), regs_d, sizeof regs_d); memcpy(&A(0), regs_a, sizeof regs_a);
+    return 1;                                   /* (rts: Obj_EndSign draws it) */
 }
 
 /* ------------------------------------------------------------------------
@@ -516,12 +649,12 @@ static void s1_giant_ring(uint32_t o)
 
 /* ------------------------------------------------------------------------
  * Object 49 - GHZ waterfall sound (WaterSound): every 64 frames while in
- * range. S3K has no S1 waterfall sound; its waterfall splash stands in.
+ * range, Sonic 1's own (the S1 sound set's sfx_Waterfall).
  * ---------------------------------------------------------------------- */
 static void s1_water_sound(uint32_t o)
 {
     if (!(r8(RAM_Level_frame_counter + 1) & 0x3F))
-        o_sfx(0x4B);                            /* sfx_WaterfallSplash */
+        o_sfx_s1(0xD0);                         /* sfx_Waterfall */
     if (o_out_of_range(o, OB16(o, OBJ_x_pos)))
         o_delete_respawnable(o);
 }
@@ -543,7 +676,7 @@ static void s1_hidden_bonus(uint32_t o)
             SET16(o, OBJ_art_tile, OB16(o, OBJ_art_tile) | 0x8000);   /* Tile_Prio */
             SET8(o, OBJ_frame, OB8(o, OBJ_subtype));
             SET16(o, BONUS_TIME, 119);
-            o_sfx(0xB0);                        /* sfx_Bonus (S3K: register) */
+            o_sfx_s1(0xC9);                        /* sfx_Bonus */
             D(0) = points[OB8(o, OBJ_subtype) & 3];
             tri_jsr(S3K_HUD_AddToScore);
         }
@@ -563,6 +696,6 @@ void s1_obj_flow_register(TriObjFn *t)
 {
     t[0x49] = s1_water_sound;
     t[0x7D] = s1_hidden_bonus;
-    t[0x0D] = s1_signpost;
+    t[0x0D] = s3_sign;
     t[0x4B] = s1_giant_ring;
 }

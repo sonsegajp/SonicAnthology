@@ -4,7 +4,8 @@ look (title_art.py's layers, its lettering, its colours).
   android_art.py [--fonts DIR]
 
 Writes android/app/src/main/assets/ui/ (the words, the title layers as PNG:
-Android has no TGA decoder) and the launcher icon (res/mipmap-*). The words
+Android has no TGA decoder; the ground's flat shapes TitleView draws itself,
+at any height) and the launcher icon (res/mipmap-*). The words
 are drawn in the boxes' typeface like title_text.tga; as there, the font is
 only referenced (its licence forbids redistribution), never copied.
 """
@@ -71,7 +72,7 @@ def main():
     a = ap.parse_args()
     face = Path(a.fonts) / 'NiseSegaSonic' / 'NiseSegaSonic.TTF'
     OUT.mkdir(parents=True, exist_ok=True)
-    for name in ('title_bg', 'title_confetti', 'title_side', 'title_logo'):
+    for name in ('title_confetti', 'title_confetti_open', 'title_side', 'title_logo'):   # (TitleView draws the ground)
         tga(name).save(OUT / (name + '.png'), optimize=True)
     for key, text in MENU.items():
         word(text, face, 11, ta.PAPER).save(OUT / ('m_%s_w.png' % key), optimize=True)

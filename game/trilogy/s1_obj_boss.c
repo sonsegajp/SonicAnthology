@@ -33,7 +33,7 @@ void s1_boss_defeated(uint32_t o)
     if (!a1) return;
     SET32(a1, OBJ_code, S3K_Obj_Explosion);
     SET8(a1, OBJ_routine, 6);                  /* no animal, no break sound */
-    o_sfx(0xB4);                               /* sfx_Bomb (S3K: boss explosion) */
+    o_sfx_s1(0xC4);                               /* sfx_Bomb */
     int r = o_random();
     SET16(a1, OBJ_x_pos, OB16(o, OBJ_x_pos) + ((r & 0xFF) >> 2) - 0x20);
     SET16(a1, OBJ_y_pos, OB16(o, OBJ_y_pos) + (((r >> 8) & 0xFF) >> 3));
@@ -63,7 +63,7 @@ static void ship_common(uint32_t o)
     if (OB8(o, OBJ_coll_flags)) return;
     if (!OB8(o, FLASH)) {
         SET8(o, FLASH, 0x20);
-        o_sfx(0x6E);                           /* sfx_BossHit */
+        o_sfx_s1(0xAC);                           /* sfx_BossHit */
     }
     w16(FLASH_COLOUR, r16(FLASH_COLOUR) ? 0 : 0x0EEE);
     SET8(o, FLASH, OB8(o, FLASH) - 1);
@@ -274,11 +274,13 @@ static void gball_follow(uint32_t o)        /* sub_17C2A */
     if (OB8(o, OBJ_anim_frame) == 0) SET8(o, OBJ_frame, OB8(o, OBJ_frame) ^ 1);
     SET16(o, GB_BASEX, OB16(p, OBJ_x_pos));
     SET16(o, GB_BASEY, OB16(p, OBJ_y_pos) + OB16(o, GB_DROP));
+    SET16(o, OBJ_x_pos, OB16(o, GB_BASEX));      /* (the base is the chain's element 0: Swing_Move2 */
+    SET16(o, OBJ_y_pos, OB16(o, GB_BASEY));      /*  puts it at radius 0, under the ship) */
     SET8(o, OBJ_status, OB8(p, OBJ_status));
     if (OB8(p, OBJ_status) & 0x80) {
         SET32(o, OBJ_code, S3K_Obj_Explosion);
         SET8(o, OBJ_routine, 6);                  /* no animal, no break sound */
-        o_sfx(0xB4);                               /* sfx_Bomb (S3K: boss explosion) */
+        o_sfx_s1(0xC4);                               /* sfx_Bomb */
     }
 }
 
@@ -360,14 +362,14 @@ static void boss_ball(uint32_t o)
                 if ((int8_t)OB8(o, GB_TICKS) < 0) {
                     SET32(o, OBJ_code, S3K_Obj_Explosion);
                     SET8(o, OBJ_routine, 6);                  /* no animal, no break sound */
-                    o_sfx(0xB4);                               /* sfx_Bomb (S3K: boss explosion) */
+                    o_sfx_s1(0xC4);                               /* sfx_Bomb */
                 }
             }
             o_touch(o);
         } else if (OB8(boss, OBJ_status) & 0x80) {
             SET32(o, OBJ_code, S3K_Obj_Explosion);
             SET8(o, OBJ_routine, 6);                  /* no animal, no break sound */
-            o_sfx(0xB4);                               /* sfx_Bomb (S3K: boss explosion) */
+            o_sfx_s1(0xC4);                               /* sfx_Bomb */
         }
         o_draw(o);
         return;
@@ -459,7 +461,7 @@ static void prison(uint32_t o)
             if (a1) {
                 SET32(a1, OBJ_code, S3K_Obj_Explosion);
                 SET8(a1, OBJ_routine, 6);                  /* no animal, no break sound */
-                o_sfx(0xB4);                               /* sfx_Bomb (S3K: boss explosion) */
+                o_sfx_s1(0xC4);                               /* sfx_Bomb */
                 int r = o_random();
                 SET16(a1, OBJ_x_pos, (uint16_t)(OB16(o, OBJ_x_pos) + ((r & 0xFF) >> 2) - 0x20));
                 SET16(a1, OBJ_y_pos, (uint16_t)(OB16(o, OBJ_y_pos) + (((r >> 8) & 0xFF) >> 3)));
@@ -540,7 +542,7 @@ static void bmz_common(uint32_t o)
     if (OB8(o, OBJ_coll_flags)) return;
     if (!OB8(o, FLASH)) {
         SET8(o, FLASH, 0x28);
-        o_sfx(0x6E);                           /* sfx_HitBoss */
+        o_sfx_s1(0xAC);                           /* sfx_HitBoss */
     }
     w16(FLASH_COLOUR, r16(FLASH_COLOUR) ? 0 : 0x0EEE);
     SET8(o, FLASH, OB8(o, FLASH) - 1);
@@ -816,7 +818,7 @@ static void boss_fire(uint32_t o)
             goto tempfire;
         }
         SET8(o, BF_TIME, 0x1E);
-        o_sfx(0x70);                           /* sfx_Fireball */
+        o_sfx_s1(0xAE);                           /* sfx_Fireball */
         /* fall through */
     case 2:                                    /* BossFire_Action */
         switch (OB8(o, R2)) {
@@ -941,7 +943,7 @@ static void bsyz_tail(uint32_t o)
     if (OB8(o, OBJ_coll_flags)) return;
     if (!OB8(o, FLASH)) {
         SET8(o, FLASH, 0x20);
-        o_sfx(0x6E);                           /* sfx_HitBoss */
+        o_sfx_s1(0xAC);                           /* sfx_HitBoss */
     }
     w16(FLASH_COLOUR, r16(FLASH_COLOUR) ? 0 : 0x0EEE);
     SET8(o, FLASH, OB8(o, FLASH) - 1);
@@ -1290,7 +1292,7 @@ static void bsyz_block_break(uint32_t o)        /* BossBlock_Break */
         SET16(a1, OBJ_y_pos, OB16(a1, OBJ_y_pos) + pos[i][1]);
         SET8(a1, OBJ_frame, i + 1);
     }
-    o_sfx(0x59);                               /* sfx_WallSmash (S3K: collapse) */
+    o_sfx_s1(0xCB);                               /* sfx_WallSmash */
 }
 
 static void boss_block(uint32_t o)
@@ -1365,7 +1367,7 @@ static void blz_tail(uint32_t o)                 /* loc_17F48 */
     if (OB8(o, OBJ_coll_flags)) return;
     if (!OB8(o, FLASH)) {
         SET8(o, FLASH, 0x20);
-        o_sfx(0x6E);                           /* sfx_HitBoss */
+        o_sfx_s1(0xAC);                           /* sfx_HitBoss */
     }
     w16(FLASH_COLOUR, r16(FLASH_COLOUR) ? 0 : 0x0EEE);
     SET8(o, FLASH, OB8(o, FLASH) - 1);
@@ -1617,7 +1619,7 @@ static void bslz_tail(uint32_t o)                /* loc_189FE */
     if (OB8(o, OBJ_coll_flags)) return;
     if (!OB8(o, FLASH)) {
         SET8(o, FLASH, 0x20);
-        o_sfx(0x6E);                           /* sfx_HitBoss */
+        o_sfx_s1(0xAC);                           /* sfx_HitBoss */
     }
     w16(FLASH_COLOUR, r16(FLASH_COLOUR) ? 0 : 0x0EEE);
     SET8(o, FLASH, OB8(o, FLASH) - 1);
@@ -1979,7 +1981,7 @@ static void boss_spikeball(uint32_t o)
         if (frag) SET16(o, OBJ_y_pos, sy);
         SET32(o, OBJ_code, S3K_Obj_Explosion); /* id_Explosion ($3F: no animal) */
         SET8(o, OBJ_routine, 6);
-        o_sfx(0xB4);                           /* sfx_Bomb */
+        o_sfx_s1(0xC4);                           /* sfx_Bomb */
         if (!frag) return;
         static const int16_t spd[4][2] = { { -0x100, -0x340 }, { -0xA0, -0x240 }, { 0x100, -0x340 }, { 0xA0, -0x240 } };
         for (int i = 0; i < 4; i++) {

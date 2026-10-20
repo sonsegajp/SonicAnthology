@@ -157,7 +157,7 @@ static void dle_lz(int act)
         extern void tri_lz3_patch(uint8_t chunk);
         if (r8(RAM_Level_trigger_array + 0x0F) && tri_lz_s1_chunk(6, 2) != 7) {
             tri_lz3_patch(7);                 /* switch $F: modify level layout */
-            o_sfx(0x6F);                      /* sfx_Rumbling */
+            o_sfx_s1(0xB7);                      /* sfx_Rumbling */
         }
         if (rt()) return;
         if (camx() < 0x1DE0 - 0x140) return;

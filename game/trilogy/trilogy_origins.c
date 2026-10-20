@@ -183,6 +183,8 @@ static const S3VideoArt *tracked(uint32_t o, int pi, int style, int slot)
     else if (slot == S_TAILS && anim == 0x24 && r8(0xFFF73Eu) /* Flying_carrying_Sonic_flag */ &&
              track(style, slot, T_LIFT_TIRED)->kind)
         t = T_LIFT_TIRED;
+    else if ((anim == 0 || anim == 1) && (r8(o + 0x2A) & 0x20) && track(style, slot, 4)->kind)
+        t = 4;                                        /* (pushing: S3K's walk shows its push frames, SAnim_Push) */
     else if (anim == 0 || anim == 1) {               /* (S3K keeps "walk" and picks frames by speed: so do we) */
         t = gsp >= 0xA00 && track(style, slot, T_DASH)->kind ? T_DASH
           : gsp >= 0x600 ? 1

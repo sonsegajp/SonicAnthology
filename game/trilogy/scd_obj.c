@@ -10,7 +10,6 @@
 
 #define SCD_ROUND_SLOT(r, id)  (0x20 + (r) * 0x80 + (id))
 #define SCD_ACT3_SLOT(r, id)   (0x400 + (r) * 0x80 + (id))   /* (act 3: its own ids) */
-#define PLC_EndSignStuff       0x085BC8u
 
 /* ---- shared ------------------------------------------------------------- */
 int cd_period(void) { return tri_cd_zone(tri_zone()) ? (tri_zone() - TRI_CD_BASE) & 3 : TRI_CD_PRESENT; }
@@ -76,26 +75,9 @@ void cd_move(uint32_t o, int32_t vx, int32_t vy)
     SET32(o, OBJ_y_pos, r32(o + OBJ_y_pos) + (uint32_t)vy);
 }
 
-/* ---- $17 signpost (acts 1 and 2) ---------------------------------------
- * Sonic CD's spins when Sonic passes it, then the results. Here S3K's own end
- * sign drops on that spot as he passes (its results, its after-act flow);
- * the camera holds it in view. */
-static void cd_signpost(uint32_t o)
-{
-    uint32_t p = RAM_Player_1;
-    int x = OBS16(o, OBJ_x_pos);
-    if (OBS16(p, OBJ_x_pos) < x) return;              /* (waits, unseen) */
-    uint32_t s = o_alloc();
-    if (!s) return;
-    w32(s, S3K_Obj_EndSign);
-    SET16(s, OBJ_x_pos, (uint16_t)x);
-    uint16_t lock = (uint16_t)(x - 160 > 0 ? x - 160 : 0);
-    if ((int16_t)r16(RAM_Camera_min_X_pos) < (int16_t)lock) w16(RAM_Camera_min_X_pos, lock);
-    w16(RAM_Camera_max_X_pos, lock);
-    A(1) = PLC_EndSignStuff;
-    tri_jsr(S3K_Load_PLC_Raw);
-    o_delete(o);
-}
+/* ---- $17 signpost (acts 1 and 2): Sonic 3's, standing where Sonic CD's
+ * does (trilogy_flow.c tri_s3_sign) -------------------------------------- */
+void tri_s3_sign(uint32_t o);
 
 /* timeZone: 0 past, 1 present, 2 either future */
 static int time_zone(void)
@@ -261,7 +243,7 @@ void scd_objects_register(TriObjFn *t)
     t[0x12] = float_block;
     t[0x14] = big_ring;
     t[0x16] = goal_post;
-    t[0x17] = cd_signpost;
+    t[0x17] = tri_s3_sign;
     t[0x1B] = boulder;
     t[0x3A0] = cd_time_post;                                /* (scd_level.py: object $80) */
     t[0x3A1] = cd_time_icon;
