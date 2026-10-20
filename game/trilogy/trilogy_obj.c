@@ -858,12 +858,12 @@ void tri_obj_frame(void)
         }
     }
     {
-        static int em = -1;                                /* development: TRILOGY_EMERALDS=1 holds all 14 (Hyper Sonic) */
-        if (em < 0) { const char *g = getenv("TRILOGY_EMERALDS"); em = g && *g; }
+        static int em = -1;                                /* development: TRILOGY_EMERALDS=1 holds all 14 (Hyper Sonic), */
+        if (em < 0) { const char *g = getenv("TRILOGY_EMERALDS"); em = g && *g ? atoi(g) : 0; }   /* =2 the 7 Chaos (Super) */
         if (em) {
             w8(RAM_Chaos_emerald_count, 7);
-            w8(RAM_Super_emerald_count, 7);
-            for (uint32_t i = 0; i < 7; i++) w8(RAM_Collected_emeralds_array + i, 3);
+            w8(RAM_Super_emerald_count, em == 2 ? 0 : 7);
+            for (uint32_t i = 0; i < 7; i++) w8(RAM_Collected_emeralds_array + i, em == 2 ? 1 : 3);
         }
     }
     const char *e = getenv("TRILOGY_RINGS");

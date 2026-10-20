@@ -1883,6 +1883,96 @@ static void frame_overlay(int line, uint32_t *out, int width)
     if (s_prog.opt[O_FPS]) fps_row(line, out, width);
 }
 
+/* Development: TRILOGY_AUTOPILOT=1 drives player 1 to the right through a
+ * level, for footage (scratch/trailer): it holds right, and when progress
+ * stalls on the ground it jumps, then spin dashes, then backs off and jumps
+ * (in turn). It writes the pad as V-int left it, before anything reads it. */
+/* =2: Knuckles glides at walls, climbs them and pulls up over the top;
+ * =3: Knuckles burrows on flat ground, digs along, bursts out and glides.
+ * (Their phases go to stderr as [AP] lines.) */
+static void autopilot(void)
+{
+    static int on = -1, stall, act, act_t, cycle, best_x, last_frame, ph, ph_t, last_ph = -1;
+    if (on < 0) { const char *e = getenv("TRILOGY_AUTOPILOT"); on = e && *e ? atoi(e) : 0; }
+    if (!on) return;
+    enum { UP = 0x01, DOWN = 0x02, LEFT = 0x04, RIGHT = 0x08, JUMP = 0x20 };
+    uint32_t p = RAM_Player_1;
+    int x = (int16_t)r16(p + 0x10), air = r8(p + 0x2A) & 2, frame = r16(RAM_Level_frame_counter);
+    if (frame < last_frame || x < best_x - 512) { best_x = x; stall = 0; act = 0; ph = 0; ph_t = 0; }   /* (a new act, a respawn) */
+    last_frame = frame;
+    if (x > best_x + 3) { best_x = x; stall = 0; } else stall++;
+    uint8_t held = RIGHT, pressed = 0;
+    if (on >= 2) {
+        int dj = r8(p + 0x2F), ang = r8(p + 0x26), gsp = (int16_t)r16(p + 0x1C);
+        ph_t++;
+        if (on == 2) {                                    /* glide, climb */
+            if (ph == 0) {                                /* run, then jump */
+                if (!air && ph_t > 24) { pressed = JUMP; held |= JUMP; ph = 1; ph_t = 0; }
+            } else if (ph == 1) {                         /* rise, then glide */
+                if (ph_t < 8) held |= JUMP;
+                else if (ph_t == 11) { pressed = JUMP; held |= JUMP; ph = 2; ph_t = 0; }
+                if (!air && ph_t > 2) { ph = 0; ph_t = 0; }
+            } else if (ph == 2) {                         /* gliding */
+                held |= JUMP;
+                if (dj == 4 || dj == 5) { ph = 3; ph_t = 0; }
+                else if (!air && ph_t > 2) { ph = 0; ph_t = 0; }
+            } else if (ph == 3) {                         /* climbing: up, over the ledge */
+                held = UP;
+                if (!dj) { ph = 0; ph_t = 0; held = RIGHT; }
+                else if (dj == 4 && ph_t > 300) { held = LEFT; pressed = JUMP; ph = 0; ph_t = 0; }   /* (no top: leap off) */
+            }
+        } else {                                          /* burrow */
+            int flat = ang < 0x10 || ang > 0xF0;
+            if (ph == 0) {                                /* run up to speed on flat ground, jump */
+                if (!air && ph_t > 50 && flat && gsp > 0x300) { pressed = JUMP; held |= JUMP; ph = 1; ph_t = 0; }
+                else if (!air && stall > 40) { pressed = JUMP; held |= JUMP; ph = 4; ph_t = 0; }   /* (over the obstacle) */
+            } else if (ph == 1) {                         /* near the top: down + jump dives */
+                if (ph_t < 6) held |= JUMP;
+                else if (ph_t == 12) { held = DOWN | RIGHT | JUMP; pressed = JUMP; ph = 2; ph_t = 0; }
+                if (!air && ph_t > 2) { ph = 0; ph_t = 0; }
+            } else if (ph == 2) {                         /* diving, then digging along */
+                if (s_dig == 2) {
+                    if (ph_t > 70) { pressed = JUMP; held |= JUMP; ph = 3; ph_t = 0; }
+                } else if (!s_dig && ph_t > 4) { ph = 0; ph_t = 0; }
+            } else if (ph == 3) {                         /* burst out high, then glide */
+                if (ph_t < 14) held |= JUMP;
+                else if (ph_t == 20) { pressed = JUMP; held |= JUMP; }
+                else if (ph_t > 20 && ph_t < 90) held |= JUMP;
+                if (!air && ph_t > 4) { ph = 0; ph_t = 0; }
+            } else if (ph == 4) {                         /* a plain hop */
+                if (ph_t < 14) held |= JUMP;
+                if (!air && ph_t > 4) { ph = 0; ph_t = 0; }
+            }
+        }
+        if (ph != last_ph) {
+            fprintf(stderr, "[AP] f %d ph %d dj %d dig %d air %d x %X y %X gsp %d ang %X\n", frame, ph, dj, s_dig,
+                    air ? 1 : 0, (unsigned)r16(p + 0x10), (unsigned)r16(p + 0x14), gsp, ang);
+            last_ph = ph;
+        }
+        w8(RAM_Ctrl_1_held, held);
+        w8(RAM_Ctrl_1_pressed, pressed);
+        return;
+    }
+    if (!act && stall > 40 && !air) { act = 1 + cycle++ % 3; act_t = 0; }
+    if (act == 1) {                                   /* jump over it */
+        if (act_t == 0) pressed = JUMP;
+        if (act_t < 24) held |= JUMP;
+        if (++act_t >= 50) act = 0;
+    } else if (act == 2) {                            /* spin dash */
+        held = act_t < 34 ? DOWN : RIGHT;
+        if (act_t == 8 || act_t == 18 || act_t == 28) { pressed = JUMP; held |= JUMP; }
+        if (++act_t >= 60) act = 0;
+    } else if (act == 3) {                            /* back off, run up, jump */
+        held = act_t < 24 ? LEFT : RIGHT;
+        if (act_t == 44) pressed = JUMP;
+        if (act_t >= 44 && act_t < 70) held |= JUMP;
+        if (++act_t >= 90) act = 0;
+    }
+    if (act) stall = 0;
+    w8(RAM_Ctrl_1_held, held);
+    w8(RAM_Ctrl_1_pressed, pressed);
+}
+
 /* ------------------------------------------------------------------------
  * Hooks
  * ---------------------------------------------------------------------- */
@@ -1903,7 +1993,7 @@ int tri_menu_hook(uint32_t pc)
         return 0;
     }
     case TH_LVL_PRE_SPRITES:
-        if (level_mode()) { prog_init(); pre_sprites(); }
+        if (level_mode()) { prog_init(); autopilot(); pre_sprites(); }
         else if (s_assist) assist_end();
         return 0;
     case TH_CARRY_INPUT:

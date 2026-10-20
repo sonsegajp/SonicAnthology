@@ -247,10 +247,22 @@ def classify(scripts):
 RING_YELLOWS = [(0x15, (252, 252, 0)), (0x16, (144, 144, 0)), (0x1F, (72, 72, 0))]   # (line 1)
 
 
+class BluePal(list):
+    """Sonic's palette line (Sonic, Super Sonic): his body's blues are entries
+    2-4, the ones Super and Hyper Sonic's palette cycles rewrite. A clearly
+    blue colour is matched only among them: by plain distance a mid blue can
+    land on entry E (S3K's grey lavender, $866), which no cycle touches, and
+    stay blue on Super Sonic."""
+    blues = (2, 3, 4)
+
+
 def nearest(rgb, pal, extra=()):
     """index 1..15 of pal (or an extra (value, rgb)) nearest to rgb"""
     best, bi = None, 1
-    for i, c in [(i, pal[i]) for i in range(1, 16)] + list(extra):
+    idx = range(1, 16)
+    if isinstance(pal, BluePal) and rgb[2] > rgb[0] + 50 and rgb[2] > rgb[1] + 40:
+        idx = pal.blues
+    for i, c in [(i, pal[i]) for i in idx] + list(extra):
         r, g, b = c
         d = 3 * (rgb[0] - r) ** 2 + 4 * (rgb[1] - g) ** 2 + 2 * (rgb[2] - b) ** 2
         if best is None or d < best:
@@ -489,8 +501,9 @@ def build_tracks(pack, g, ch, style, pal, words, seq):
     """the 64 tracks of one player in one style"""
     v5 = style == 'sonic3k'
     spec = dict(TRACKS_V5 if v5 else TRACKS_V4)
-    if style in ('sonic1', 'soniccd'):
-        spec.update(TRACKS_DASH)
+    if style in ('sonic1', 'soniccd') and ch != 'SuperSonic':
+        spec.update(TRACKS_DASH)              # (Super Sonic keeps his own run: S1's Super Peel Out is plain
+                                              #  Sonic's, and CD borrows S2's Super Sonic, whose entry is stale)
     if ch == 'Tails':
         spec.update(TRACKS_V5_TAILS if v5 else TRACKS_V4_TAILS)
     anims = g.anims(ch)
@@ -605,7 +618,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     rom = Path(a.rom).read_bytes()
     md = lambda c: ((c >> 1 & 7) * 36, (c >> 5 & 7) * 36, (c >> 9 & 7) * 36)
-    pals = {ch: [md(rom[p + i * 2] << 8 | rom[p + i * 2 + 1]) for i in range(16)] for ch, p in PALETTES.items()}
+    pals = {ch: (BluePal if ch in ('Sonic', 'SuperSonic') else list)(
+                [md(rom[p + i * 2] << 8 | rom[p + i * 2 + 1]) for i in range(16)]) for ch, p in PALETTES.items()}
     words = {ch: [rom[p + i * 2] << 8 | rom[p + i * 2 + 1] for i in range(16)] for ch, p in PALETTES.items()}
 
     pack = Pack()

@@ -30,7 +30,7 @@
 #include <string.h>
 
 #define MAP_KNUCKLES    0x14A8D6u     /* (follows PLC_Tails in the S&K listing) */
-#define MAP_TAILS_TAIL  0x144BB8u
+#define MAP_TAILS_TAIL  0x344BB8u     /* (Map_Tails_Tail: in the lock-on's Sonic 3 half) */
 #define MAP_MONITOR     0x01DBA2u
 #define MAP_MONITOR_END 0x01DC5Cu
 #define MAP_STARPOST    0x02D348u
