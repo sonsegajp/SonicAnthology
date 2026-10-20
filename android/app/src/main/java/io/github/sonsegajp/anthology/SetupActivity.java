@@ -60,6 +60,7 @@ public class SetupActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        Screens.apply(this);
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         gameDir = getExternalFilesDir(null);
@@ -431,5 +432,11 @@ public class SetupActivity extends Activity {
         File[] kids = f.listFiles();
         if (kids != null) for (File k : kids) deleteTree(k);
         f.delete();
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        Screens.apply(this);                        /* (folded or unfolded) */
     }
 }

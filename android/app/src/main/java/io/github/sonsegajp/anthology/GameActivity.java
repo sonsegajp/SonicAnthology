@@ -10,6 +10,7 @@ import org.libsdl.app.SDLActivity;
 public class GameActivity extends SDLActivity {
     @Override
     protected void onCreate(android.os.Bundle state) {
+        Screens.apply(this);
         File dir = getExternalFilesDir(null);
         if (!new File(dir, "sonic3k.bin").isFile() || !new File(dir, "trilogy.bin").isFile()) {
             /* (not built yet: to the setup) */
@@ -19,6 +20,19 @@ public class GameActivity extends SDLActivity {
             return;
         }
         super.onCreate(state);
+    }
+
+    /** SDL locks the orientation its hint names (landscape) as the window opens:
+     *  on a large screen that letterboxes the game, so the screen decides */
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        Screens.apply(this);
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        Screens.apply(this);                        /* (folded or unfolded) */
     }
 
     @Override

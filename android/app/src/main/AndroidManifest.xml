@@ -18,14 +18,15 @@
 
         <!-- Back presses Start (the pause menu) instead of leaving the game -->
         <meta-data android:name="SDL_ENV.SDL_ANDROID_TRAP_BACK_BUTTON" android:value="1" />
-        <!-- Landscape only (SDL would allow portrait for a resizable window) -->
+        <!-- Landscape (SDL would allow portrait for a resizable window); on a large
+             screen GameActivity lets the screen decide (Screens.java) -->
         <meta-data android:name="SDL_ENV.SDL_IOS_ORIENTATIONS" android:value="LandscapeLeft LandscapeRight" />
 
         <!-- The front door: choose your dumps, build, play -->
         <activity
             android:name=".SetupActivity"
             android:exported="true"
-            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -40,7 +41,7 @@
             android:launchMode="singleInstance"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:preferMinimalPostProcessing="true"
-            android:screenOrientation="sensorLandscape">
+            android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>

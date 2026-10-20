@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 11+: draw under a display cutout on any edge (a foldable held
+         sideways has its camera on a long edge, which shortEdges leaves black) -->
+    <style name="Anthology" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+    </style>
+</resources>
