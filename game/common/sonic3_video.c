@@ -47,6 +47,7 @@ static int s_camera_y;
  * are (extent); s_extra, their sum, follows the window (width). */
 enum { NATIVE_LINES=224 };
 static int s_top, s_bottom, s_extra;
+static uint8_t s_edge_bg[2];   /* the background's commonest colour on the top / bottom native line (0: backdrop) */
 static unsigned s_frames, s_fallbacks, s_terrain_checks, s_terrain_errors;
 static unsigned s_bg_checks, s_bg_errors, s_bg_unstreamed;
 static unsigned s_scene_misses, s_scene_holds;
@@ -222,11 +223,15 @@ static int width(int dw, int dh, int nw, int nh)
     s_requested_width = pixels < nw ? nw : pixels;
     s_extra = 0;
 #ifdef __ANDROID__   /* (an unfolded foldable, a tablet; a desktop window keeps the native height) */
-    if (dw > 0 && dh > 0 && s_mode != VIDEO_STAGE) {
+    int tall = 1;
+#else
+    static int tall = -1;   /* (development: S3_VIDEO_TALL=1, Android's taller picture on a PC) */
+    if (tall < 0) { const char *t = getenv("S3_VIDEO_TALL"); tall = t && *t == '1'; }
+#endif
+    if (tall && dw > 0 && dh > 0 && s_mode != VIDEO_STAGE) {
         int e = (int)((double)s_requested_width * dh / dw - nh + 0.5);
         s_extra = e <= 0 ? 0 : e > 480 - nh ? 480 - nh : e;
     }
-#endif
     return s_requested_width;
 }
 /* The rows above and below for the frame about to run: centred, or in a
@@ -1083,7 +1088,8 @@ static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_
     /* (menus repeat their 224-line composition, as they do across; a
      * streamed name-table canvas has only its native lines: the edge one) */
     int menu_line=!level && !special && !file_select?(line%NATIVE_LINES+NATIVE_LINES)%NATIVE_LINES:line;
-    int by=bg_world?unwrap(vs_b,s_frame_bg_y)+(bg_canvas?sl:line):menu_line+(vs_b&1023);
+    int bline=bg_canvas?sl:line;
+    int by=bg_world?unwrap(vs_b,s_frame_bg_y)+bline:menu_line+(vs_b&1023);
     int bg_width=bg_world?((s_world_frame[0x8002]<<8)|s_world_frame[0x8003])*128:0;
     /* AIZ1's upper parallax bands are a fixed 512px canvas. Its layout
      * also stores the intro coastline and fire art farther right: those
@@ -1136,6 +1142,8 @@ static uint8_t bg_sample(const GVDP *v,const BgLine *L,int x,int line,uint16_t *
     if(L->bg_width>0) { background_x%=L->bg_width;if(background_x<0)background_x+=L->bg_width; }
     uint16_t b=L->bg_world?world_attr(s_background_frame,background_x,by,1):plane_attr(v,L->base_b,bx,by);
     uint8_t bp=pattern_pixel(v,b,L->bg_world?background_x:bx,by);
+    if(!bp && L->ext && L->bg_world && !L->bg_canvas)   /* (no background art beyond the native lines: */
+        bp=s_edge_bg[line<0?0:1];                       /*  its main colour on the edge line carries on) */
     *pal=0;
     if(L->file_select && (bx<0 || bx>=1024 || L->ext))bp=0;
     if(L->bg_canvas) {
@@ -1514,6 +1522,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         if(r){s_fs_repl=r;s_fs_capacity=width;}
     }
     if(width>s_fs_capacity)ground=NULL;
+    unsigned edge_hist[64],*edge_count=NULL;   /* (the background's colours on the edge lines, for the rows beyond) */
+    if(level && !s_interp && s_extra && (line==0 || line==NATIVE_LINES-1)) {
+        memset(edge_hist,0,sizeof edge_hist);
+        edge_count=edge_hist;
+    }
     for(int x=0;x<width;++x) {
         int nx=x-origin,wx=level?nx+camera:nx-hs_a;
         int reference_bx=nx-hs_b;
@@ -1521,7 +1534,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         uint16_t b;int bpal;
         uint8_t bp=blur?blur_cached(line,x,width,&b,&bpal):bg_sample(v,&L,x,line,&b,&bpal);
         uint8_t ap=pattern_pixel(v,a,level?wx:nx-hs_a,level?wy:pl+(v->vsram[0]&1023));
-        if(file_select && ext){a=0;ap=0;}
+        if(file_select && ext) {                  /* (beyond the native lines: the ground alone, under the cards) */
+            out[x]=ground?ground[x]:backdrop;
+            s_priority[x]=0;
+            continue;
+        }
         if(file_select && !ext) {
             /* Reflect only the portrait at its edges, retaining its native
              * pixel scale and a continuous backdrop at every aspect ratio.
@@ -1592,6 +1609,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             if(el)out[x]=genesis_dac_cram_to_argb(gvdp_ext_color(sl,el,p),GENESIS_DAC_NORMAL);
         }
         if(blur)s_blur_mask[x]=(uint8_t)!foreground;
+        if(edge_count)++edge_count[bp];
         /* Outside a native special-stage projection only planes are drawn,
          * so plane priority alone
          * determines shadow; native operator sprites remain in the center. */
@@ -1637,6 +1655,11 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             }
 
         }
+    }
+    if(edge_count) {
+        int best=0;
+        for(int i=1;i<64;++i)if(edge_hist[i]>edge_hist[best])best=i;
+        s_edge_bg[line==0?0:1]=(uint8_t)best;
     }
     if(blur)blur_apply(line,out,width);
     if(!level) {
