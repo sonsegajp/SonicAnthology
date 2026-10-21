@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 apply plugin: 'com.chaquo.python'
 
-def anthologyVersion = '1.3.1'
+def anthologyVersion = '1.3.2'
 
 // Release signing: android/keystore.properties (never committed) names the
 // keystore and its passwords; without it the release APK is left unsigned
@@ -18,7 +18,7 @@ android {
         applicationId 'io.github.sonsegajp.anthology'
         minSdk 24
         targetSdk 34
-        versionCode 10301
+        versionCode 10302
         versionName anthologyVersion
         ndk { abiFilters(*project.property('abis').split(',')) }
         externalNativeBuild {

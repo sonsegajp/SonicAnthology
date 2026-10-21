@@ -237,12 +237,16 @@ static int width(int dw, int dh, int nw, int nh)
 /* The rows above and below for the frame about to run: centred, or in a
  * level kept inside the camera's vertical bounds (the view stops at the
  * stage's top and bottom, as view_left stops at its sides). */
-static void extent(int *top, int *bottom)
+static int unwrap(int value, int reference);
+static void extent(const GVDP *v, int *top, int *bottom)
 {
     int t = s_extra / 2, mode = g_ram[0xF600] & 127;
     if (!enabled() || ram16(S3_COMPETITION)) t = s_extra = 0;
     else if (s_extra && (mode == 8 || mode == 12)) {
-        int cy = (int16_t)ram16(0xEE7C), lo = (int16_t)ram16(0xEE18), hi = (int16_t)ram16(0xEE1A);
+        /* the camera this frame shows: the scroll the VDP holds (the game's
+         * RAM camera can be the next frame's already), as scanline reads it */
+        int cy = unwrap(v->vsram[0], (int16_t)ram16(0xEE84));
+        int lo = (int16_t)ram16(0xEE18), hi = (int16_t)ram16(0xEE1A);
         if (lo >= 0 && hi >= lo) {                  /* (a stage that wraps vertically has no edge) */
             if (s_extra - t > hi - cy) t = s_extra - (hi - cy);
             if (t > cy - lo) t = cy - lo;

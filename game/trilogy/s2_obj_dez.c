@@ -12,6 +12,7 @@
  */
 #include "trilogy_obj.h"
 #include "trilogy_assets_s2.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 #define S2(id)          (NATIVE_S2_BASE + (id) * 4u)
@@ -524,6 +525,14 @@ static uint32_t mecha_child(uint32_t o, int field, uint8_t sub, uint8_t routine)
 
 static void mecha(uint32_t o)
 {
+    {   static int log = -1, last = -1;                 /* development: TRILOGY_BOSSLOG, its hits left */
+        if (log < 0) log = getenv("TRILOGY_BOSSLOG") != NULL;
+        if (log && OB8(o, OBJ_routine) < 0x0E && OB8(o, OBJ_coll_prop) != last) {
+            last = OB8(o, OBJ_coll_prop);
+            fprintf(stderr, "[BOSS] Silver Sonic hits left %d (routine %02X, frame %u)\n", last,
+                    OB8(o, OBJ_routine), r16(RAM_Level_frame_counter));
+        }
+    }
     switch (OB8(o, OBJ_routine)) {
     case 0x00:                                          /* ObjAF_Init */
         o_init(o, S2A_MECHA, OB8(o, OBJ_render) | 4, 4, 0x10, 0x20);
@@ -587,6 +596,7 @@ static void mecha(uint32_t o)
             SET8(o, MS_2F, OB8(o, MS_2F) + 1);
             SET8(o, MS_2E, 0);
             SET8(ptr(OB16(o, MS_SPIKE)), OBJ_routine, 0x16);
+            o_touch(o);
             o_draw(o);
             return;
         }
@@ -594,6 +604,7 @@ static void mecha(uint32_t o)
         SET16(o, OBJ_y_pos, OB16(o, OBJ_y_pos) + o_floor_dist(o));
         anim_checked(o, S2A_MECHA, MS_2ND);
         mecha_spike_box(o);
+        o_touch(o);                                     /* (S3K touches only listed objects: S2's touched all) */
         o_draw(o);
         return;
     case 0x0A:                                          /* loc_398C0: attacking */
@@ -604,6 +615,7 @@ static void mecha(uint32_t o)
         mecha_align(o, ptr(OB16(o, MS_LED)), 0, 0);
         mecha_spike_box(o);
         o_move(o);
+        o_touch(o);
         o_draw(o);
         return;
     case 0x0C:                                          /* loc_39B92: blowing up */
