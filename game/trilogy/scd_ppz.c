@@ -1528,7 +1528,9 @@ void cd_projector(uint32_t o)
 /* She chases the player about where she stands, hugs one who walks slowly by
  * her (the player held till the jump buttons, or 9:50 on the clock), then hops
  * after them. Her colours replace line 1 while she is in the level (Pal_AmyRose;
- * the level's own back when she is gone). */
+ * the level's own back when she is gone). She is after Sonic alone: with Tails
+ * or Knuckles she only waits where she stands, facing them, and makes no
+ * hearts (routine $0A). */
 #define AM_X0    0x30                  /* oVar36: where she stood */
 #define AM_T     0x32                  /* oVar3A */
 #define AM_HT    0x33                  /* oVar3B: to the next heart */
@@ -1729,11 +1731,16 @@ static void amy(uint32_t o)
             SET16(o, OBJ_y_pos, OB16(o, OBJ_y_pos) + d1);
         }
         amy_face(o, p);
-        if (amy_dx(o, p) < 0x70) SET8(o, OBJ_routine, 2);
+        if (OB8(p, 0x38) != 0) SET8(o, OBJ_routine, 0x0A);   /* (character_id: not Sonic) */
+        else if (amy_dx(o, p) < 0x70) SET8(o, OBJ_routine, 2);
         amy_animate(o, 5);
         break;
     case 2:
         amy_main(o, p);
+        break;
+    case 0x0A:                                                /* (not Sonic: she waits) */
+        amy_face(o, p);
+        amy_animate(o, 5);
         break;
     case 4:                                                   /* ObjAmyRose_HoldSonic */
         if (!playing(p)) {                                    /* (not hers to hold any more) */
@@ -1780,7 +1787,7 @@ static void amy(uint32_t o)
         }
         break;
     }
-    amy_hearts(o);
+    if (OB8(o, OBJ_routine) != 0x0A) amy_hearts(o);
     if (cd_despawn(o, OB16(o, OBJ_x_pos))) {
         if (OB8(o, OBJ_routine) == 4) SET8(p, OBJ_object_ctrl, OB8(p, OBJ_object_ctrl) & ~1);
         amy_pal(o, 0);

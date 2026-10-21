@@ -47,7 +47,9 @@ static int s_camera_y;
  * are (extent); s_extra, their sum, follows the window (width). */
 enum { NATIVE_LINES=224 };
 static int s_top, s_bottom, s_extra;
-static uint8_t s_edge_bg[2];   /* the background's commonest colour on the top / bottom native line (0: backdrop) */
+static uint8_t s_edge_bg[2];   /* the background's own colours above its top / below its bottom (sky_refresh) */
+static int s_sky_rows;         /* the background layout's height in pixels (sky_refresh) */
+static unsigned s_sky_key = ~0u;
 static unsigned s_frames, s_fallbacks, s_terrain_checks, s_terrain_errors;
 static unsigned s_bg_checks, s_bg_errors, s_bg_unstreamed;
 static unsigned s_scene_misses, s_scene_holds;
@@ -234,9 +236,16 @@ static int width(int dw, int dh, int nw, int nh)
     }
     return s_requested_width;
 }
-/* The rows above and below for the frame about to run: centred, or in a
- * level kept inside the camera's vertical bounds (the view stops at the
- * stage's top and bottom, as view_left stops at its sides). */
+/* The rows above and below for the frame about to run. Menus: centred. A
+ * level: the view (the world rows the taller picture shows) aims to centre
+ * the game's camera, kept inside the camera's vertical bounds (the view
+ * stops at the stage's top and bottom, as view_left stops at its sides),
+ * but it moves only when the camera does, no faster and only its way: the
+ * bounds change on their own (Sonic 1's levels lower the bottom bound a few
+ * pixels a frame as you enter a lower area), and a view chasing them would
+ * scroll by itself while the game's camera stands still. */
+static int s_view_y, s_view_cy;
+static unsigned s_view_key = ~0u;
 static int unwrap(int value, int reference);
 static void extent(const GVDP *v, int *top, int *bottom)
 {
@@ -247,12 +256,33 @@ static void extent(const GVDP *v, int *top, int *bottom)
          * RAM camera can be the next frame's already), as scanline reads it */
         int cy = unwrap(v->vsram[0], (int16_t)ram16(0xEE84));
         int lo = (int16_t)ram16(0xEE18), hi = (int16_t)ram16(0xEE1A);
+        int want = cy - s_extra / 2;
         if (lo >= 0 && hi >= lo) {                  /* (a stage that wraps vertically has no edge) */
-            if (s_extra - t > hi - cy) t = s_extra - (hi - cy);
-            if (t > cy - lo) t = cy - lo;
-            if (t < 0) t = 0;
-            if (t > s_extra) t = s_extra;
+            if (want > hi - s_extra) want = hi - s_extra;
+            if (want < lo) want = lo;
         }
+        unsigned key = (unsigned)ram16(0xFE10) << 8 | (unsigned)s_extra;
+        int dc = cy - s_view_cy;
+        if (key != s_view_key || dc > 64 || dc < -64)   /* (a new act, a respawn: start where it aims) */
+            s_view_y = want;
+        else {
+            int step = want - s_view_y;
+            if (dc > 0) step = step < 0 ? 0 : step > dc ? dc : step;
+            else if (dc < 0) step = step > 0 ? 0 : step < dc ? dc : step;
+            else step = 0;
+            s_view_y += step;
+        }
+        if (s_view_y > cy) s_view_y = cy;           /* (the game's own picture always inside) */
+        if (s_view_y < cy - s_extra) s_view_y = cy - s_extra;
+        s_view_key = key;
+        s_view_cy = cy;
+        t = cy - s_view_y;
+    } else
+        s_view_key = ~0u;
+    {   static int lg = -1;                         /* development: S3_TALL_LOG, the split each frame */
+        if (lg < 0) lg = getenv("S3_TALL_LOG") != NULL;
+        if (lg && s_extra) fprintf(stderr, "[TALL] f %u cy %d lo %d hi %d top %d\n", (unsigned)ram16(0xFE04),
+                                   unwrap(v->vsram[0], (int16_t)ram16(0xEE84)), (int16_t)ram16(0xEE18), (int16_t)ram16(0xEE1A), t);
     }
     s_top = t;
     s_bottom = s_extra - t;
@@ -1131,6 +1161,11 @@ static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_
      * is the close, collidable boss arena entered by the later events. */
     if(bg_world && s_frame_zone==22 && !s_frame_act && !s_frame_bg_event)
         bg_width=512;
+    /* DEZ1's chamber and DEZ2's Earth are single screen-wide pictures: the
+     * BG camera stays at 0,0 (PlainDeformation) and the layout's last 64px
+     * are blank. Repeat the picture, as the menus do, not that blank. */
+    if(bg_world && s_frame_zone==11 && bg_width==384)
+        bg_width=320;
     L->bg_world=bg_world;L->aiz_fire=aiz_fire;L->bg_canvas=bg_canvas;L->aiz_banks=aiz_banks;
     L->hs_b=hs_b;L->by=by;L->bg_width=bg_width;
 }
@@ -1146,8 +1181,10 @@ static uint8_t bg_sample(const GVDP *v,const BgLine *L,int x,int line,uint16_t *
     if(L->bg_width>0) { background_x%=L->bg_width;if(background_x<0)background_x+=L->bg_width; }
     uint16_t b=L->bg_world?world_attr(s_background_frame,background_x,by,1):plane_attr(v,L->base_b,bx,by);
     uint8_t bp=pattern_pixel(v,b,L->bg_world?background_x:bx,by);
-    if(!bp && L->ext && L->bg_world && !L->bg_canvas)   /* (no background art beyond the native lines: */
-        bp=s_edge_bg[line<0?0:1];                       /*  its main colour on the edge line carries on) */
+    /* (beyond the native lines and past the layout's own top or bottom:
+     *  its edge carries on, sky_refresh; inside it, its art and its gaps) */
+    if(L->ext && L->bg_world && !L->bg_canvas && s_sky_rows && (by<0 || by>=s_sky_rows))
+        bp=s_edge_bg[by<0?0:1];
     *pal=0;
     if(L->file_select && (bx<0 || bx>=1024 || L->ext))bp=0;
     if(L->bg_canvas) {
@@ -1366,6 +1403,36 @@ static void blur_apply(int line,uint32_t *out,int width)
             out[x]=(out[x]&0xFF000000u)|((ar[x]>>16)<<16)|((ag[x]>>16)<<8)|(ab[x]>>16);
 }
 
+/* What the taller picture shows past the background layout's top or bottom
+ * (no art is stored there): the commonest pixel of the layout's own top and
+ * bottom 16 rows, an empty one (0) being the backdrop the native lines show
+ * through it. Worked out once per act and background scene, so the sky keeps
+ * one colour however the camera moves (the live palette still fades and
+ * cycles it). */
+static void sky_refresh(const GVDP *v)
+{
+    unsigned key=(unsigned)s_frame_zone<<24|(unsigned)s_frame_act<<16|(unsigned)s_frame_bg_event;
+    if(key==s_sky_key)return;
+    s_sky_key=key;
+    int cols=((s_background_frame[0x8002]<<8)|s_background_frame[0x8003])*128;
+    int rows=((s_background_frame[0x8006]<<8)|s_background_frame[0x8007])*128;
+    if(cols<=0 || cols>4096)cols=1024;
+    if(rows<=0 || rows>4096)rows=1024;
+    s_sky_rows=rows;
+    unsigned top[64]={0},bot[64]={0};
+    for(int y=0;y<16;y+=2)
+        for(int x=0;x<cols;x+=4) {
+            ++top[pattern_pixel(v,world_attr(s_background_frame,x,y,1),x,y)&63];
+            ++bot[pattern_pixel(v,world_attr(s_background_frame,x,rows-1-y,1),x,rows-1-y)&63];
+        }
+    int bt=0,bb=0;
+    for(int i=1;i<64;++i){if(top[i]>top[bt])bt=i;if(bot[i]>bot[bb])bb=i;}
+    s_edge_bg[0]=(uint8_t)bt;s_edge_bg[1]=(uint8_t)bb;
+    {   static int lg=-1; if(lg<0)lg=getenv("S3_TALL_LOG")!=NULL;   /* development */
+        if(lg)fprintf(stderr,"[SKY] zone %02X act %u ev %04X: top %u (%u samples), bottom %u (%u); bg %dx%d\n",
+                      s_frame_zone,s_frame_act,s_frame_bg_event,bt,top[bt],bb,bot[bb],cols,rows); }
+}
+
 static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
                      uint32_t *out, int width)
 {
@@ -1431,6 +1498,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         } else memset(s_ix[1].ocode,0,sizeof s_ix[1].ocode);
     }
     v=&s_video_frame;
+    if(line==0 && !s_interp && s_extra && s_frame_level)sky_refresh(v);
     uint32_t backdrop=palette[v->reg[7]&63];
     /* During a completed fade the game can clear/reload name tables before
      * retiring its old player/display list. A flat palette displays no stage
@@ -1526,11 +1594,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
         if(r){s_fs_repl=r;s_fs_capacity=width;}
     }
     if(width>s_fs_capacity)ground=NULL;
-    unsigned edge_hist[64],*edge_count=NULL;   /* (the background's colours on the edge lines, for the rows beyond) */
-    if(level && !s_interp && s_extra && (line==0 || line==NATIVE_LINES-1)) {
-        memset(edge_hist,0,sizeof edge_hist);
-        edge_count=edge_hist;
-    }
     for(int x=0;x<width;++x) {
         int nx=x-origin,wx=level?nx+camera:nx-hs_a;
         int reference_bx=nx-hs_b;
@@ -1613,7 +1676,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             if(el)out[x]=genesis_dac_cram_to_argb(gvdp_ext_color(sl,el,p),GENESIS_DAC_NORMAL);
         }
         if(blur)s_blur_mask[x]=(uint8_t)!foreground;
-        if(edge_count)++edge_count[bp];
         /* Outside a native special-stage projection only planes are drawn,
          * so plane priority alone
          * determines shadow; native operator sprites remain in the center. */
@@ -1659,11 +1721,6 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             }
 
         }
-    }
-    if(edge_count) {
-        int best=0;
-        for(int i=1;i<64;++i)if(edge_hist[i]>edge_hist[best])best=i;
-        s_edge_bg[line==0?0:1]=(uint8_t)best;
     }
     if(blur)blur_apply(line,out,width);
     if(!level) {

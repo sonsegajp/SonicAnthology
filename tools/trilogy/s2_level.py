@@ -62,6 +62,11 @@ S2_L1_PERM = [0, 11, 2, 3, 4, 15, 1, 12, 13, 14, 8, 9, 5, 6, 7, 10]
 # S2 Pal_SonicTails (PalPointers id 3)
 S2_SONIC = [0x000, 0x000, 0xA22, 0xC42, 0xE44, 0xE66, 0xEEE, 0xAAA, 0x888, 0x444, 0x8AE, 0x46A, 0x00E, 0x008, 0x0AE, 0x08E]
 
+# Rings the Anthology adds (S2 zone, act) -> [(x, y)]: the Death Egg has none
+# of its own, and its two bosses kill on any hit; three at its start, in a
+# row ahead of Sonic (he starts at $60, $12C), 24 px apart as S2 spaces them
+EXTRA_RINGS = {(0x0E, 0): [(0xA0, 0x124), (0xB8, 0x124), (0xD0, 0x124)]}
+
 # S2 monitor subtypes -> S3K: 0 static, 1/2 Sonic/Tails 1-up, 3 Robotnik, 4 rings, 5 shoes,
 # 6 shield (-> bubble; s1_objects.elemental_shields then mixes in fire and lightning),
 # 7 invincibility, 8 teleport / 9 random (1P: rings)
@@ -181,6 +186,7 @@ class Sonic2:
             y = yw & 0xFFF
             for i in range(n):
                 rings.append((x, y + i * 0x18) if vertical else (x + i * 0x18, y))
+        rings += EXTRA_RINGS.get((z, act), [])
         rings.sort()
         rb = b'\0\0\0\0' + b''.join(struct.pack('>HH', x, y) for x, y in rings) + b'\xFF\xFF\0\0'
         return b'\xFF\xFF\0\0\0\0' + ob, rb

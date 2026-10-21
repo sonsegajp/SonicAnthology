@@ -234,15 +234,13 @@ static int results_done(void)
         return 1;
     }
     uint16_t next = tri_next_act(za);
-    if (!next && tri_cd_zone(za >> 8)) {         /* Sonic CD done (Metallic Madness act 3): to the title, as
-                                                  *  the pause menu's exit (it is no saved campaign) */
+    if (!next && tri_cd_zone(za >> 8)) {         /* Sonic CD done (Metallic Madness act 3, its ending
+                                                  *  played): on to Sonic 2's Emerald Hill, as after Sonic 1 */
         extern void scd_audio_reset(void);
-        fprintf(stderr, "[trilogy] Sonic CD complete after $%04X: to the title\n", za);
+        fprintf(stderr, "[trilogy] Sonic CD complete after $%04X: on to Emerald Hill\n", za);
         scd_audio_reset();
         s_ss_pending = 0;
-        w8(RAM_Game_mode, 0x04);
-        o_delete(A(0) & 0xFFFFFF);
-        return 1;
+        next = 0x2800;
     }
     if (!next) {
         fprintf(stderr, "[trilogy] campaign complete after $%04X\n", za);
