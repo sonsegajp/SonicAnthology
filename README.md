@@ -113,7 +113,7 @@ How it works: [How Sonic 1 and Sonic 2 got into Sonic 3 & Knuckles](docs/HOW_THE
 
 ## Playing
 
-1. Download the PC zip, **SonicAnthology-v1.3.1.zip** from [v1.3.1](../../releases/tag/v1.3.1), and unpack it anywhere.
+1. Download the PC zip, **SonicAnthology-v1.3.2.zip** from [v1.3.2](../../releases/tag/v1.3.2), and unpack it anywhere.
 2. Run **AnthologyBuilder.exe** and choose your dumps (it checks them):
 
    | Game | Dump | CRC32 |
