@@ -118,6 +118,7 @@ void     o_remember(uint32_t o);                /* Sprite_OnScreen_Test */
 int      o_out_of_range(uint32_t o, uint16_t x); /* S1 out_of_range: 1 = out */
 void     o_delete_respawnable(uint32_t o);      /* clear respawn bit + delete */
 void     o_touch(uint32_t o);                   /* add to collision response list */
+void     tri_boss_hits(uint32_t o);             /* a boss's count set: Easy makes it three (trilogy_obj.c) */
 void     o_move(uint32_t o);                    /* MoveSprite2 (SpeedToPos) */
 void     o_fall(uint32_t o);                    /* MoveSprite  (ObjectFall) */
 int16_t  o_floor_dist(uint32_t o);              /* ObjCheckFloorDist -> d1 */

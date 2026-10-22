@@ -107,6 +107,10 @@ static Img *img_load(const char *name)
 }
 
 static Img *s_bg, *s_conf, *s_conf_open, *s_side, *s_logo, *s_menu_bg, *s_ds_tile, *s_ds_band, *s_text;
+/* the new file's picker and the Data Select's badges: each experience's logo
+ * (game_*.tga, the picker's size; badge_*.tga, a file card's), and EASY */
+static Img *s_game[TRI_EXP_COUNT], *s_badge[TRI_EXP_COUNT], *s_badge_easy;
+static const char *const k_exp_file[TRI_EXP_COUNT] = { "all", "s1", "cd", "s2", "s3k" };
 /* title_text.tga: rows of TEXT_H, white then gold, for these words */
 enum { TX_PRESS, TX_START, TX_COMPETITION, TX_OPTIONS, TX_COUNT, TEXT_H = 18 };
 static int s_text_w[TX_COUNT];
@@ -124,6 +128,14 @@ static void load_art(void)
     s_ds_tile = img_load("ds_tile.tga");
     s_ds_band = img_load("ds_band.tga");
     s_text = img_load("title_text.tga");
+    for (int i = 0; i < TRI_EXP_COUNT; i++) {
+        char name[32];
+        snprintf(name, sizeof name, "game_%s.tga", k_exp_file[i]);
+        s_game[i] = img_load(name);
+        snprintf(name, sizeof name, "badge_%s.tga", k_exp_file[i]);
+        s_badge[i] = img_load(name);
+    }
+    s_badge_easy = img_load("badge_easy.tga");
     if (s_text && s_text->h < TX_COUNT * 2 * TEXT_H) { free(s_text->px); free(s_text); s_text = NULL; }
     for (int i = 0; s_text && i < TX_COUNT; i++)          /* each word's width, from its alpha */
         for (int y = 0; y < TEXT_H; y++)
@@ -152,6 +164,29 @@ enum { ST_PRESS, ST_MENU, ST_OPTIONS, ST_LEAVE };
 static const char *const k_items[] = { "START GAME", "COMPETITION", "OPTIONS" };
 #define N_ITEMS 3
 static int s_on, s_started, s_state, s_sel, s_opt, s_t, s_leave, s_choice;
+
+/* The Konami code on PRESS START (up up down down left right left right B A)
+ * unlocks everything (trilogy_menu.c) to the Chaos Emerald's jingle; the
+ * title theme comes back after it. */
+#define MUS_EMERALD  0x2B             /* mus_Emerald */
+#define JINGLE_TIME  (5 * 60)
+static const uint8_t k_konami[] = { BTN_UP, BTN_UP, BTN_DOWN, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_LEFT, BTN_RIGHT, BTN_B, 0x40 };
+static int s_konami, s_jingle;
+void tri_konami_unlock(void);
+
+static int konami(uint8_t press)                     /* 1: the code's last press (taken) */
+{
+    if (!press) return 0;
+    if (press == k_konami[s_konami]) s_konami++;
+    else s_konami = press == k_konami[0];
+    if (s_konami < (int)sizeof k_konami) return 0;
+    s_konami = 0;
+    tri_konami_unlock();
+    D(0) = MUS_EMERALD;
+    tri_jsr(S3K_Play_Music);
+    s_jingle = JINGLE_TIME;
+    return 1;
+}
 
 static int title_mode(void) { return (r8(RAM_Game_mode) & 0x7F) == GM_TITLE; }
 
@@ -184,18 +219,24 @@ static void title_scene(void)
         w16(RAM_Demo_timer, 15 * 60);
         s_state = ST_PRESS;
         s_t = 0;
+        s_konami = s_jingle = 0;
     }
     w8(RAM_V_int_routine, 2);                         /* (VInt_2: the pads, the palette, the demo timer) */
     tri_jsr(S3K_Wait_VSync);
     uint8_t press = r8(RAM_Ctrl_1_pressed) | r8(RAM_Ctrl_2_pressed);
-    if (s_state != ST_PRESS) w16(RAM_Demo_timer, 15 * 60);
+    if (s_state != ST_PRESS || press || s_jingle) w16(RAM_Demo_timer, 15 * 60);   /* (no demo mid-code) */
     else if (!r16(RAM_Demo_timer)) {                  /* (the attract demo, as Sonic 3's title) */
         s_on = 0;
         tri_jsr(S3K_TITLE_DEMO);
         return;
     }
+    if (s_jingle && !--s_jingle) {                    /* the jingle over: the title theme again */
+        D(0) = MUS_TITLE;
+        tri_jsr(S3K_Play_Music);
+    }
     switch (s_state) {
     case ST_PRESS:
+        if (konami(press)) break;
         if (press & (BTN_START | BTN_AC)) { s_state = ST_MENU; s_sel = 0; o_sfx(SFX_RING); }
         break;
     case ST_MENU:                                      /* (a row along the band) */
@@ -229,6 +270,8 @@ static void title_scene(void)
 }
 
 static int ds_active(void);
+static int s_pick_on;
+static void picker_input(void);
 
 int tri_title_hook(uint32_t pc)
 {
@@ -236,6 +279,8 @@ int tri_title_hook(uint32_t pc)
         uint32_t o = RAM_Player_1;                    /* (SaveScreen's first object: DATA SELECT) */
         if (ds_active() && r32(o) && r16(o + 0x10) == 0x120 && r16(o + 0x14) == 0x14C && r8(o + 0x22) == 3)
             w32(o, 0);
+        if (pc == TH_DS_INIT) s_pick_on = 0;
+        else if (s_pick_on) picker_input();           /* (a new file's picker: before the objects read the pads) */
         return 0;
     }
     if (pc == TH_TITLE_TAKEOVER) {                    /* the SEGA logo has faded: Sonic 3's title ends here */
@@ -730,6 +775,250 @@ static const uint32_t *ds_ground(int line, int width)
             row[x] = 0xFF000000u | r << 16 | g << 8 | b;
         }
     return row;
+}
+
+/* ---- a new file: the experience picker ----------------------------------
+ * Starting an empty file (or No Save) opens it over the Data Select, which
+ * carries on beneath (trilogy_save.c reverts the cartridge's start): first
+ * the game - the whole Anthology or one of its four - then Original or Easy.
+ * Its input is taken before the Data Select's objects see the pads. */
+static const char *const k_exp_desc[TRI_EXP_COUNT] = {
+    "EVERY GAME IN STORY ORDER FROM SONIC 1 TO SONIC 3 AND KNUCKLES.",
+    "SONIC THE HEDGEHOG ON ITS OWN.",
+    "SONIC CD ON ITS OWN.",
+    "SONIC THE HEDGEHOG 2 ON ITS OWN.",
+    "SONIC 3 AND KNUCKLES ON ITS OWN.",
+};
+static const char *const k_mode_name[2] = { "ORIGINAL", "EASY" };
+static const char *const k_mode_desc[2] = {
+    "EVERY ACT AS THE GAMES WERE MADE.",
+    "ONE ACT PER ZONE WITH ITS BOSS. BOSSES TAKE THREE HITS.",
+};
+/* the window, about the screen's centre; the carousel's logos SPACING apart */
+#define PW 144                                         /* (half its width) */
+#define PY0 30
+#define PY1 194
+#define SPACING 232
+#define PAPER 0xFFF6F2E6u
+static int s_pick_step, s_pick_ti, s_pick_pos, s_pick_easy, s_pick_t;   /* (s_pick_pos: 1/16 px) */
+static uint32_t s_pick_slot;
+
+void tri_save_start(uint32_t a1, int exp, int easy);
+int tri_scd_available(void);
+
+/* the games on offer, in order: the Anthology, then story order (Sonic CD
+ * only with its disc); i wraps */
+static int pick_count(void) { return tri_scd_available() ? TRI_EXP_COUNT : TRI_EXP_COUNT - 1; }
+static int pick_exp(int i)
+{
+    static const int order[TRI_EXP_COUNT] = { TRI_EXP_ALL, TRI_EXP_S1, TRI_EXP_CD, TRI_EXP_S2, TRI_EXP_S3K };
+    int n = pick_count();
+    i = (i % n + n) % n;
+    if (!tri_scd_available() && i >= 2) i++;
+    return order[i];
+}
+
+void tri_picker_open(uint32_t slot_data)
+{
+    load_art();
+    s_pick_on = 1;
+    s_pick_step = 0;
+    s_pick_ti = s_pick_pos = 0;
+    s_pick_easy = 0;
+    s_pick_t = 0;
+    s_pick_slot = slot_data;
+    fprintf(stderr, "[trilogy] new file: experience picker (slot $%06X)\n", (unsigned)slot_data);
+}
+
+static void picker_input(void)
+{
+    uint8_t press = r8(RAM_Ctrl_1_pressed);
+    w8(RAM_Ctrl_1_pressed, 0);                         /* (the Data Select sees no presses; the held
+                                                        *  buttons stay, the pad's edges come from them) */
+    s_pick_t++;
+    int target = s_pick_ti * SPACING * 16;             /* (the carousel slides on) */
+    s_pick_pos += (target - s_pick_pos) / 4;
+    if (abs(target - s_pick_pos) < 16) s_pick_pos = target;
+    if (s_pick_t < 8) return;                          /* (opening) */
+    if (s_pick_step == 0) {
+        int d = press & BTN_LEFT ? -1 : press & BTN_RIGHT ? 1 : 0;
+        if (d) { s_pick_ti += d; o_sfx(SFX_SWITCH); }
+        if (press & BTN_B) { s_pick_on = 0; o_sfx(SFX_SWITCH); }
+        else if (press & (BTN_START | BTN_AC)) { s_pick_step = 1; o_sfx(SFX_RING); }
+    } else {
+        if (press & (BTN_LEFT | BTN_RIGHT | BTN_UP | BTN_DOWN)) { s_pick_easy ^= 1; o_sfx(SFX_SWITCH); }
+        if (press & BTN_B) { s_pick_step = 0; o_sfx(SFX_SWITCH); }
+        else if (press & (BTN_START | BTN_AC)) {
+            s_pick_on = 0;
+            o_sfx(SFX_RING);
+            tri_save_start(s_pick_slot, pick_exp(s_pick_ti), s_pick_easy);
+        }
+    }
+}
+
+static uint32_t mix_rgb(uint32_t a, uint32_t b, int k)    /* a toward b by k/256 */
+{
+    uint32_t r = ((a >> 16 & 255) * (256 - k) + (b >> 16 & 255) * k) >> 8;
+    uint32_t g = ((a >> 8 & 255) * (256 - k) + (b >> 8 & 255) * k) >> 8;
+    uint32_t bl = ((a & 255) * (256 - k) + (b & 255) * k) >> 8;
+    return 0xFF000000u | r << 16 | g << 8 | bl;
+}
+
+/* an image blended in between columns c0..c1, faded toward the paper by k/256 */
+static void draw_clip(const Img *img, int line, uint32_t *out, int width, int x0, int y0, int c0, int c1, int k)
+{
+    int y = line - y0;
+    if (!img || y < 0 || y >= img->h) return;
+    const uint32_t *row = img->px + (size_t)y * img->w;
+    for (int x = 0; x < img->w; x++) {
+        int X = x0 + x;
+        if (X < c0 || X >= c1 || X < 0 || X >= width || !(row[x] >> 24)) continue;
+        uint32_t c = blend(out[X], row[x]);
+        out[X] = k ? mix_rgb(c, PAPER, k) : c;
+    }
+}
+
+/* text centred across x0..x1, wrapped to n lines from y */
+static void wrapped(int line, uint32_t *out, int width, int x0, int x1, int y, const char *s, int col, int n)
+{
+    char buf[64];
+    int cols = (x1 - x0) / 8;
+    for (int k = 0; k < n && tri_text_wrap(s, cols, k, buf); k++)
+        if (line >= y + k * 10 && line < y + k * 10 + 8)
+            tri_text(out, line - y - k * 10, (x0 + x1 - tri_text_w(buf)) / 2, buf, col, width);
+}
+
+/* A window over the dimmed Data Select: the games' logos in a carousel (the
+ * neighbours peeping in at its sides), dots for the place, the choice's
+ * line; once a game is chosen, Original or Easy. */
+static void picker_draw(int line, uint32_t *out, int width)
+{
+    for (int x = 0; x < width; x++) out[x] = shade(out[x], 112);   /* (the Data Select, dimmed) */
+    int cx = width / 2, x0 = cx - PW, x1 = cx + PW;
+    int open = s_pick_t < 8 ? s_pick_t * 256 / 8 : 256, mid = (PY0 + PY1) / 2;
+    int y0 = mid - (mid - PY0) * open / 256, y1 = mid + (PY1 - mid) * open / 256;
+    if (line < y0 || line >= y1) return;
+    /* the frame: navy, a gold keyline, the paper */
+    int edge = line < y0 + 3 || line >= y1 - 3;
+    for (int x = x0; x < x1; x++) {
+        uint32_t c = PAPER;
+        if (edge || x < x0 + 3 || x >= x1 - 3) c = 0xFF102060u;
+        else if (line == y0 + 4 || line == y1 - 5 || x == x0 + 4 || x == x1 - 5) c = 0xFFFFCE31u;
+        put(out, width, x, c);
+    }
+    if (open < 256) return;
+    int tag = tri_text_w("NEW FILE") + 12;             /* (the heading's gold tag, its end slanted) */
+    if (line >= PY0 + 8 && line < PY0 + 20)
+        for (int x = x0 + 10; x < x0 + 10 + tag + (PY0 + 19 - line) / 2; x++) put(out, width, x, 0xFFFFCE31u);
+    if (line >= PY0 + 10 && line < PY0 + 18) tri_text(out, line - PY0 - 10, x0 + 16, "NEW FILE", C_DARK, x1);
+    /* the carousel */
+    int n = pick_count(), sel = s_pick_ti, exp = pick_exp(sel), cy = 86;   /* (between the tag and the dots) */
+    int pos = s_pick_pos / 16;
+    int first = (pos >= 0 ? pos / SPACING : -((-pos + SPACING - 1) / SPACING)) - 1;
+    for (int k = first; k <= first + 3; k++) {
+        int xc = cx + k * SPACING - pos;
+        const Img *g = s_game[pick_exp(k)];
+        int fade = k == sel ? 0 : s_pick_step ? 224 : 150;
+        if (g) draw_clip(g, line, out, width, xc - g->w / 2, cy - g->h / 2, x0 + 5, x1 - 5, fade);
+        else if (k == sel && line >= cy - 4 && line < cy + 4) {
+            static const char *const names[TRI_EXP_COUNT] = { "SONIC ANTHOLOGY", "SONIC 1", "SONIC CD", "SONIC 2", "SONIC 3 AND KNUCKLES" };
+            tri_text(out, line - cy + 4, xc - tri_text_w(names[exp]) / 2, names[exp], C_INK, x1);
+        }
+    }
+    if (s_pick_step == 0 && line >= cy - 6 && line < cy + 7) {  /* (red arrows at the sides, nudging) */
+        int r = line - cy, w = 6 - (r < 0 ? -r : r), nudge = (s_pick_t / 8) & 1;
+        for (int k = 0; k < w; k++) {
+            put(out, width, x0 + 10 - nudge + k, 0xFFE00000u);
+            put(out, width, x1 - 11 + nudge - k, 0xFFE00000u);
+        }
+    }
+    if (line >= 124 && line < 127)                    /* (the dots: which of them) */
+        for (int i = 0; i < n; i++) {
+            int dx = cx + (i * 2 - (n - 1)) * 5;
+            uint32_t c = ((sel % n + n) % n) == i ? 0xFFE00000u : 0xFFB0B0C0u;
+            for (int x = dx - 1; x <= dx + 1; x++) put(out, width, x, c);
+        }
+    wrapped(line, out, width, x0 + 12, x1 - 12, 134, s_pick_step ? k_mode_desc[s_pick_easy] : k_exp_desc[exp], C_INK, 2);
+    if (line == 157)
+        for (int x = x0 + 14; x < x1 - 14; x++) put(out, width, x, 0xFF3157AEu);
+    /* Original / Easy: a gold bar under the choice once the game is chosen */
+    int my = 164;
+    for (int m = 0; m < 2; m++) {
+        int w = tri_text_w(k_mode_name[m]), mx = cx + (m ? 30 : -30 - w);
+        int chosen = m == s_pick_easy;
+        if (s_pick_step == 1 && chosen && line >= my - 3 && line < my + 11)
+            for (int x = mx - 6 + (my + 11 - line) / 3; x < mx + w + 6 + (my + 11 - line) / 3; x++) put(out, width, x, 0xFFFFCE31u);
+        if (line >= my && line < my + 8)
+            tri_text(out, line - my, mx, k_mode_name[m], s_pick_step == 1 ? (chosen ? C_RED : C_INK) : C_DIM, width);
+    }
+    const char *hint = s_pick_step ? "A START  B BACK" : "A CHOOSE  B BACK";
+    if (line >= 179 && line < 187) tri_text(out, line - 179, cx - tri_text_w(hint) / 2, hint, C_DIM, x1);
+}
+
+/* The Data Select's file cards: each started file's experience as a badge
+ * on its card (and EASY), over the screen the cartridge draws. The cards sit
+ * 104 px apart from x 144, scrolled by the camera ($FFEE80). */
+#define RAM_DS_camera_x 0xFFEE80u
+#define RAM_Saved_data_ 0xFFE6ACu
+#define BADGE_Y         10                            /* (the badges' centre row: astride the card's top) */
+
+/* an image blended in, darkened with the screen's fade (k/256) */
+static void draw_faded(const Img *img, int line, uint32_t *out, int width, int x0, int y0, int k)
+{
+    int y = line - y0;
+    if (!img || y < 0 || y >= img->h) return;
+    const uint32_t *row = img->px + (size_t)y * img->w;
+    for (int x = 0; x < img->w; x++) {
+        if (x0 + x < 0 || x0 + x >= width) continue;
+        uint32_t c = row[x];
+        if (k < 256) c = (c & 0xFF000000u) | (shade(c, k < 0 ? 0 : k) & 0xFFFFFFu);
+        out[x0 + x] = blend(out[x0 + x], c);
+    }
+}
+
+static void ds_badges(int line, uint32_t *out, int width)
+{
+    static uint8_t b0[8], b1[8];
+    static int camx;
+    if (line == 0) {
+        camx = (int16_t)r16(RAM_DS_camera_x);
+        for (int i = 0; i < 8; i++) {
+            b0[i] = r8(RAM_Saved_data_ + (uint32_t)i * 10u);
+            b1[i] = r8(RAM_Saved_data_ + (uint32_t)i * 10u + 1);
+        }
+    }
+    int k = fade_level();
+    {   /* which page of files, on the title band's right (trilogy_save.c) */
+        extern int tri_save_page(void), tri_save_pages(void);
+        int top, bottom, y = DS_BAND_Y + 9;
+        s3_video_canvas_rows(&top, &bottom);
+        y += bottom;
+        if (line >= y && line < y + 8 && k > 128) {   /* (right of the band's lettering; 4:3: no total) */
+            char s[24];
+            if (width >= 380) snprintf(s, sizeof s, "PAGE %d OF %d", tri_save_page() + 1, tri_save_pages());
+            else snprintf(s, sizeof s, "PAGE %d", tri_save_page() + 1);
+            tri_text(out, line - y, width / 2 + 98, s, C_SELECT, width);
+        }
+    }
+    if (line < BADGE_Y - 16 || line >= BADGE_Y + 16) return;
+    for (int i = 0; i < 8; i++) {
+        if ((b0[i] & 0x80) || !(b1[i] & 0x80) || (b1[i] & 7) >= TRI_EXP_COUNT) continue;
+        int cx = 144 + 104 * i - camx + (width - 320) / 2;
+        if (cx < -80 || cx > width + 80) continue;
+        const Img *b = s_badge[b1[i] & 7];
+        if (b) draw_faded(b, line, out, width, cx - 44, BADGE_Y - b->h / 2, k);
+        if ((b1[i] & 0x40) && s_badge_easy)
+            draw_faded(s_badge_easy, line, out, width, cx + 44 - s_badge_easy->w, BADGE_Y - s_badge_easy->h / 2, k);
+    }
+}
+
+/* the frame overlay's Data Select part (trilogy_menu.c): the badges, the picker */
+void tri_picker_frame(int line, uint32_t *out, int width)
+{
+    if ((r8(RAM_Game_mode) & 0x7F) != 0x4C) { s_pick_on = 0; return; }
+    load_art();
+    if (s_pick_on) picker_draw(line, out, width);
+    else ds_badges(line, out, width);
 }
 
 void tri_title_init(void)

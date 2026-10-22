@@ -63,7 +63,7 @@ static GVDP s_video_frame;
 static uint8_t s_world_frame[0xA800];
 static uint8_t s_background_frame[0xA800];
 static int s_frame_level,s_frame_special,s_frame_fg_x,s_frame_fg_y,s_frame_bg_y;
-static unsigned s_frame_zone,s_frame_act,s_frame_bg_event;
+static unsigned s_frame_zone,s_frame_act,s_frame_bg_event,s_frame_fg_event;
 static unsigned s_frame_tree_reveal;
 static int s_frame_bg_band[2];
 static void scene_mode_changed(int was_enabled);
@@ -907,14 +907,19 @@ static void select_scene(const GVDP *v)
         s_display=&s_display_frame;
     }
 }
-/* A coloured picture's pixel (ix/iy already flipped) -> 1 and its colour */
-static inline int art_colour(const S3VideoArt *a,int ix,int iy,const uint32_t *palette,uint32_t *out)
+/* A coloured picture's pixel (ix/iy already flipped) -> 1 and its colour.
+ * Its entries in line 0 (a player's own) are read in the line the sprite is
+ * drawn with (attr): a character drawn as a non-player - Knuckles met in a
+ * cutscene - has his colours there, line 0 being the player's (and Super). */
+static inline int art_colour(const S3VideoArt *a,int ix,int iy,const uint32_t *palette,unsigned attr,uint32_t *out)
 {
     if(ix<0 || iy<0 || ix>=a->w || iy>=a->h)return 0;
     unsigned v=a->pix[iy*a->w+ix];
     if(!v || v>a->ncol)return 0;
     const uint8_t *e=a->col+(v-1)*6u;
-    uint32_t now=palette[e[3]&63],own=genesis_dac_cram_to_argb((uint16_t)(e[4]|e[5]<<8),GENESIS_DAC_NORMAL);
+    unsigned entry=e[3]&63u;
+    if(entry<16u)entry|=(attr>>9)&48u;
+    uint32_t now=palette[entry],own=genesis_dac_cram_to_argb((uint16_t)(e[4]|e[5]<<8),GENESIS_DAC_NORMAL);
     int r=e[0]+(int)((now>>16)&255)-(int)((own>>16)&255);
     int g=e[1]+(int)((now>>8)&255)-(int)((own>>8)&255);
     int b=e[2]+(int)(now&255)-(int)(own&255);
@@ -1000,7 +1005,7 @@ static void draw_scene_sprites(const GVDP *v,int line,uint32_t *out,int width,
                 if(s->attr&0x800)ix=pw-1-ix;
                 if(s->art && s->art->ncol) {
                     uint32_t col;
-                    if(!art_colour(s->art,ix,jy,palette,&col))continue;
+                    if(!art_colour(s->art,ix,jy,palette,s->attr,&col))continue;
                     s_priority[x]|=2;
                     if((s->attr&0x8000) || !(s_priority[x]&1))out[x]=col;
                     continue;
@@ -1025,7 +1030,7 @@ static void draw_scene_sprites(const GVDP *v,int line,uint32_t *out,int width,
             int ix=(s->attr&0x800)?pw-1-i:i;
             if(s->art && s->art->ncol) {
                 uint32_t col;
-                if(!art_colour(s->art,ix,iy,palette,&col))continue;
+                if(!art_colour(s->art,ix,iy,palette,s->attr,&col))continue;
                 s_priority[x]|=2;
                 if((s->attr&0x8000) || !(s_priority[x]&1))out[x]=col;
                 continue;
@@ -1115,7 +1120,12 @@ static void bg_line_setup(const GVDP *v,int line,int level,int special,int file_
      * live Plane B canvas edited by the boss, independent of its layout. */
     int ssz_canvas=bg_world && s_frame_zone==10 && !s_frame_act && s_frame_bg_event;
     int dez3_canvas=bg_world && s_frame_zone==23;
-    int bg_canvas=fbz_canvas || icz_canvas || ssz_canvas || dez3_canvas;
+    /* AIZ2's battleship run (AIZ2SE_ShipRefresh .. EndRefresh): the ship is
+     * BG layout $8F0 rows down, shown through a second BG camera and an
+     * H-int VSRAM split, over a looping foreground redrawn from layout X
+     * $4380. Both planes are the uploaded compositions (aiz_ship, scanline). */
+    int aiz_ship=bg_world && !s_frame_zone && s_frame_act==1 && s_frame_fg_event>=4 && s_frame_fg_event<=12;
+    int bg_canvas=fbz_canvas || icz_canvas || ssz_canvas || dez3_canvas || aiz_ship;
     int aiz_banks=bg_world && !s_frame_zone && !s_frame_act &&
         s_frame_bg_event<=8 && s_aiz_art_ready;
     int vs_b=s_interp?ix_lerp(s_ix[0].vs_b,s_ix[1].vs_b,128):v->vsram[1];
@@ -1468,7 +1478,7 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
             (s_frame_special && (v->reg[12]&8) && (v->reg[1]&64));
         if(s_frame_special)ss_begin(v,width);
         s_frame_zone=g_ram[0xFE10];
-        s_frame_act=g_ram[0xFE11];s_frame_bg_event=ram16(0xEEC2);
+        s_frame_act=g_ram[0xFE11];s_frame_bg_event=ram16(0xEEC2);s_frame_fg_event=ram16(0xEEC0);
         s_frame_tree_reveal=ram16(0xEEC4);
         if(s_frame_level && !s_frame_zone && !s_frame_act)load_aiz_art();
         /* The intro queues the main-level block definitions before its
@@ -1579,6 +1589,8 @@ static void scanline(const GVDP *v, int line, const uint32_t *native, int nw,
     int aiz_fire_fg=aiz_fire &&
         ((s_frame_act==0 && s_frame_bg_event>=0x10) ||
          (s_frame_act==1 && s_frame_bg_event==0));
+    /* (and AIZ2's battleship run: its foreground likewise, bg_line_setup) */
+    if(bg_world && !s_frame_zone && s_frame_act==1 && s_frame_fg_event>=4 && s_frame_fg_event<=12)aiz_fire_fg=1;
     if(aiz_banks){aiz_palette(&s_aiz_intro,v,intro_palette);aiz_palette(&s_aiz_main,v,forest_palette);}
     int blur=s_bg_blur && level && !s_extra && blur_prepare(v,line,width,&L,camera,palette,
         aiz_banks?intro_palette:NULL,aiz_banks?forest_palette:NULL,backdrop);

@@ -28,6 +28,7 @@ enum {
     U_DROPDASH, U_PEELOUT, U_HOMING,                       /* abilities */
     U_MAGNET, U_SHIELD, U_SHOES, U_AIR, U_LIVES, U_RINGS, U_SUPER, U_MOON, U_HIGHJUMP,
     U_AIRDASH, U_CHARGEFLY, U_BURROW, U_WALLDASH,           /* Tails' and Knuckles' (saved by index: append) */
+    U_HYPER,                                                /* (earned by finishing the whole Anthology) */
     U_COUNT
 };
 /* the two menu pages (save indices stay as above) */
@@ -50,7 +51,7 @@ static int abil_count(void)
     while (n < 3 && k_abil_char[abil_char()][n] >= 0) n++;
     return n;
 }
-static const int k_mod_list[] = { U_MAGNET, U_SHIELD, U_SHOES, U_AIR, U_LIVES, U_RINGS, U_SUPER, U_MOON, U_HIGHJUMP };
+static const int k_mod_list[] = { U_MAGNET, U_SHIELD, U_SHOES, U_AIR, U_LIVES, U_RINGS, U_SUPER, U_HYPER, U_MOON, U_HIGHJUMP };
 #define N_ABIL ((int)(sizeof k_abil_list / sizeof k_abil_list[0]))
 #define N_MODS ((int)(sizeof k_mod_list / sizeof k_mod_list[0]))
 
@@ -79,6 +80,7 @@ static const struct {
     { "CHARGED FLIGHT", "TAILS: WHILE FLYING, HOLD JUMP TO WIND UP YOUR TAILS. LET GO TO ROCKET UPWARD.", k_onoff, 2 },
     { "BURROW",         "KNUCKLES: HOLD DOWN AND PRESS JUMP IN THE AIR TO DIVE INTO THE GROUND AND DIG ALONG, UNDER BADNIKS AND MONITORS. JUMP TO BURST OUT: THE LONGER YOU DIG, THE HIGHER YOU GO. JUMP AGAIN TO GLIDE.", k_onoff, 2 },
     { "WALL DASH",      "KNUCKLES: WHILE CLIMBING A WALL, HOLD TOWARDS IT AND PRESS JUMP TO SPIN DASH STRAIGHT UP IT.", k_onoff, 2 },
+    { "HYPER ANYTIME",  "TURN HYPER WITH 50 RINGS EVEN WITHOUT THE EMERALDS.", k_onoff, 2 },
 };
 
 enum {
@@ -160,20 +162,48 @@ static struct {
     uint8_t  value[U_COUNT];      /* current setting of each unlock */
     uint8_t  opt[O_COUNT];
     uint32_t badniks, monitors, walls;
-} s_prog = { 0, { 0 }, { 1, 1, 1, 2, 2, 0, 0, 0, 0, 0, 0 }, 0, 0, 0 };
+    uint8_t  konami;              /* the title's Konami code: everything unlocked */
+} s_prog = { 0, { 0 }, { 1, 1, 1, 2, 2, 0, 0, 0, 0, 0, 0 }, 0, 0, 0, 0 };
 
 static int s_unlock_all = -1;      /* TRILOGY_UNLOCK_ALL=1: testing, never saved */
+static void prog_load(void);
+static void prog_save(void);
 
 static int unlocked(int u)
 {
     if (s_unlock_all < 0) { const char *e = getenv("TRILOGY_UNLOCK_ALL"); s_unlock_all = e && *e == '1'; }
-    if (s_unlock_all) return 1;
+    prog_load();
+    if (s_unlock_all || s_prog.konami) return 1;
+    if (u == U_HYPER) {                                   /* (a finished Anthology file, trilogy_save.c) */
+        extern int tri_save_anthology_clear(void);
+        return tri_save_anthology_clear();
+    }
     for (int a = 0; a < A_COUNT; a++)
         if (k_ach[a].unlock == u && (s_prog.ach & (1u << a))) return 1;
     return 0;
 }
 static int on(int u) { return unlocked(u) && s_prog.value[u]; }
-static void prog_load(void);
+
+/* The Konami code (trilogy_title.c): every ability and modifier unlocked, each
+ * starting off as an earned one does, and the zone select. */
+void tri_konami_unlock(void)
+{
+    prog_load();
+    if (s_prog.konami) return;
+    s_prog.konami = 1;
+    prog_save();
+    fprintf(stderr, "[trilogy] Konami code: everything unlocked\n");
+}
+
+/* The pause menu's zone select: earned by finishing the whole Anthology (a
+ * finished file of every game in turn, trilogy_save.c), or the Konami code. */
+int tri_zone_select_unlocked(void)
+{
+    extern int tri_save_anthology_clear(void);
+    if (s_unlock_all < 0) { const char *e = getenv("TRILOGY_UNLOCK_ALL"); s_unlock_all = e && *e == '1'; }
+    prog_load();
+    return s_unlock_all || s_prog.konami || tri_save_anthology_clear();
+}
 /* SPECIAL STAGES: 0 per game, 1 Blue Spheres, 2 half-pipe (trilogy_ss.c) */
 int tri_option_special_stages(void)
 {
@@ -201,6 +231,7 @@ static void prog_save(void)
     FILE *f = fopen(s_path, "w");
     if (!f) return;
     fprintf(f, "achievements=%u\nbadniks=%u\nmonitors=%u\nwalls=%u\n", s_prog.ach, s_prog.badniks, s_prog.monitors, s_prog.walls);
+    if (s_prog.konami) fprintf(f, "konami=1\n");
     for (int u = 0; u < U_COUNT; u++) fprintf(f, "unlock%d=%d\n", u, s_prog.value[u]);
     for (int o = 0; o < O_COUNT; o++) fprintf(f, "option%d=%d\n", o, s_prog.opt[o]);
     fclose(f);
@@ -223,6 +254,7 @@ static void prog_load(void)
         else if (sscanf(line, "badniks=%u", &v) == 1) s_prog.badniks = v;
         else if (sscanf(line, "monitors=%u", &v) == 1) s_prog.monitors = v;
         else if (sscanf(line, "walls=%u", &v) == 1) s_prog.walls = v;
+        else if (sscanf(line, "konami=%u", &v) == 1) s_prog.konami = v != 0;
         else if (sscanf(line, "unlock%d=%u", &i, &v) == 2 && i >= 0 && i < U_COUNT && (int)v < k_unlock[i].count) s_prog.value[i] = (uint8_t)v;
         else if (sscanf(line, "option%d=%u", &i, &v) == 2 && i >= 0 && i < O_COUNT && (int)v < k_opt[i].count) s_prog.opt[i] = (uint8_t)v;
     }
@@ -1206,6 +1238,20 @@ static const struct { const char *name; uint16_t act[3]; int acts; } k_zones[] =
     { "SKY CHASE",      { 0x3000 }, 1 },
     { "WING FORTRESS",  { 0x3100 }, 1 },
     { "DEATH EGG",      { 0x3200 }, 1 },
+    { "ANGEL ISLAND",   { 0x0000, 0x0001 }, 2 },          /* (Sonic 3 & Knuckles, in its order) */
+    { "HYDROCITY",      { 0x0100, 0x0101 }, 2 },
+    { "MARBLE GARDEN",  { 0x0200, 0x0201 }, 2 },
+    { "CARNIVAL NIGHT", { 0x0300, 0x0301 }, 2 },
+    { "ICECAP",         { 0x0500, 0x0501 }, 2 },
+    { "LAUNCH BASE",    { 0x0600, 0x0601 }, 2 },
+    { "MUSHROOM HILL",  { 0x0700, 0x0701 }, 2 },
+    { "FLYING BATTERY", { 0x0400, 0x0401 }, 2 },
+    { "SANDOPOLIS",     { 0x0800, 0x0801 }, 2 },
+    { "LAVA REEF",      { 0x0900, 0x0901 }, 2 },
+    { "HIDDEN PALACE",  { 0x1601 }, 1 },
+    { "SKY SANCTUARY",  { 0x0A00 }, 1 },
+    { "DEATH EGG",      { 0x0B00, 0x0B01 }, 2 },
+    { "THE DOOMSDAY",   { 0x0C00 }, 1 },
 };
 #define N_ZONES ((int)(sizeof k_zones / sizeof k_zones[0]))
 static int s_zone_act[N_ZONES];
@@ -1354,7 +1400,7 @@ static int menu_tick(uint8_t pressed)
         switch (*sel) {
         case M_CONTINUE: return 1;
         case M_RESTART:  w16(RAM_Restart_level_flag, 1); return 1;
-        case M_ZONE:     s_page = PG_ZONE; break;
+        case M_ZONE:     if (tri_zone_select_unlocked()) s_page = PG_ZONE; break;
         case M_ABIL:     s_page = PG_ABIL; s_sel[PG_ABIL] = 0; break;
         case M_MODS:     s_page = PG_MODS; s_sel[PG_MODS] = 0; break;
         case M_ACH:      s_page = PG_ACH;  s_sel[PG_ACH] = 0; break;
@@ -1671,7 +1717,10 @@ static void panel_row(int line, uint32_t *out, int width)
         int row = line - y, col = i == sel ? C_SELECT : C_NORMAL;
         const char *name = "", *value = NULL;
         switch (s_page) {
-        case PG_MAIN: name = k_main[i]; break;
+        case PG_MAIN:
+            name = k_main[i];
+            if (i == M_ZONE && !tri_zone_select_unlocked()) { value = "LOCKED"; if (i != sel) col = C_DIM; }
+            break;
         case PG_ABIL: case PG_MODS: {
             int u = s_page == PG_ABIL ? abil_at(i) : k_mod_list[i];
             name = k_unlock[u].name;
@@ -1712,6 +1761,7 @@ static void panel_row(int line, uint32_t *out, int width)
     case PG_ABIL: case PG_MODS: {
         int u = s_page == PG_ABIL ? abil_at(sel) : k_mod_list[sel];
         if (unlocked(u)) desc = k_unlock[u].desc;
+        else if (u == U_HYPER) desc = "FINISH THE WHOLE ANTHOLOGY.";
         else for (int a = 0; a < A_COUNT; a++)
             if (k_ach[a].unlock == u) { snprintf(extra, sizeof extra, "EARN %s", k_ach[a].name); desc = extra; }
         break;
@@ -1869,6 +1919,8 @@ static void frame_overlay(int line, uint32_t *out, int width)
     extern void tri_title_frame(int line, uint32_t *out, int width);
     tri_thumb_overlay(line, out, width);                         /* (the Data Select's recorded zone cards) */
     tri_title_frame(line, out, width);                           /* (the title screen, trilogy_title.c) */
+    extern void tri_picker_frame(int line, uint32_t *out, int width);
+    tri_picker_frame(line, out, width);                          /* (the Data Select's badges, a new file's picker) */
     {
         extern void tri_scdss_overlay(int line, uint32_t *out, int width);
         tri_scdss_overlay(line, out, width);                     /* (Sonic CD's UFO stages: pillarboxed) */
@@ -2024,7 +2076,10 @@ int tri_menu_hook(uint32_t pc)
         if (s_dig == 2 && (A(1) & 0xFFFFFFu) == RAM_Player_1) g_cpu.SR |= 4u;   /* burrowed: under it */
         return 0;
     case TH_SUPER_CHK: case TH_SUPER_CHK_K: case TH_SUPER_CHK_T:   /* Sonic, Knuckles, Tails */
-        if (on(U_SUPER)) g_cpu.SR &= ~1u;                       /* emeralds check passes */
+        if (on(U_SUPER) || on(U_HYPER)) g_cpu.SR &= ~1u;        /* emeralds check passes */
+        return 0;
+    case TH_HYPER_CHK: case TH_HYPER_CHK_K:                     /* Sonic_Transform / Knux_Transform's choice */
+        if (on(U_HYPER)) g_cpu.SR &= ~1u;                       /* (the Super Emeralds' check passes: Hyper) */
         return 0;
     default:
         return 0;

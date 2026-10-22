@@ -734,6 +734,12 @@ kind = "game_hook"
 addr = 0x015144 # trilogy SUPER_CHK_T (Tails_Test_For_Flight)
 kind = "game_hook"
 [[widescreen_site]]
+addr = 0x011A42 # trilogy HYPER_CHK (Sonic_Transform)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x0178F2 # trilogy HYPER_CHK_K (Knux_Transform)
+kind = "game_hook"
+[[widescreen_site]]
 addr = 0x01515A # trilogy TAILS_CPU_FLY (Tails_Test_For_Flight)
 kind = "game_hook"
 [[widescreen_site]]
@@ -807,6 +813,12 @@ addr = 0x00C812 # trilogy DS_LOOP (SaveScreen_MainLoop)
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x00C75E # trilogy DS_INIT (loc_C72C)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00C3FA # trilogy SAVE_WRITE (Write_SaveGame)
+kind = "game_hook"
+[[widescreen_site]]
+addr = 0x00C154 # trilogy SRAM_LOAD (SRAM_Load)
 kind = "game_hook"
 [[widescreen_site]]
 addr = 0x02326C # trilogy SPRING_NEAR (sub_2326C)

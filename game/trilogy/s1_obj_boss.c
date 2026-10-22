@@ -112,10 +112,7 @@ static void boss_ghz(uint32_t o)
         SET32(o, BOSS_Y, (uint32_t)OB16(o, OBJ_y_pos) << 16);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
     }
     /* fall through */
     case 2:
@@ -637,10 +634,7 @@ static void boss_mz(uint32_t o)
         SET32(o, BOSS_Y, (uint32_t)OB16(o, OBJ_y_pos) << 16);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         s_bossstatus = 0;
         uint32_t a1 = o;
         for (int i = 0; i < 4; i++) {
@@ -1093,10 +1087,7 @@ static void boss_syz(uint32_t o)
         SET32(o, BOSS_Y, (uint32_t)OB16(o, OBJ_y_pos) << 16);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         uint32_t a1 = o;
         for (int i = 0; i < 4; i++) {
             if (i) {
@@ -1425,10 +1416,7 @@ static void boss_lz(uint32_t o)
         SET32(o, BOSS_Y, (uint32_t)OB16(o, OBJ_y_pos) << 16);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         uint32_t a1 = o;
         for (int i = 0; i < 3; i++) {
             if (i) {
@@ -1673,10 +1661,7 @@ static void boss_slz(uint32_t o)
         SET32(o, BOSS_Y, (uint32_t)OB16(o, OBJ_y_pos) << 16);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         uint32_t a1 = o;
         for (int i = 0; i < 4; i++) {
             if (i) {

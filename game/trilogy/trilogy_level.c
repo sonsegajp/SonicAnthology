@@ -27,6 +27,28 @@ void tri_scd_level_music(void);
 static uint16_t s_next_za = 0xFFFF;
 void tri_level_next(uint16_t za) { s_next_za = za; }
 
+/* Begin the level about to load as if respawning at a star post at (x, y):
+ * the camera there, max Y `my`, Dynamic_resize_routine `rt`, the water's
+ * starting height. */
+static void starpost_start(uint16_t za, unsigned x, unsigned y, unsigned my, unsigned rt, unsigned rings, uint16_t water)
+{
+    w8(0xFFFE2B, 1);                           /* Saved_last_star_post_hit */
+    w8(RAM_Last_star_post_hit, 1);
+    w16(0xFFFE2C, za);                         /* Saved_zone_and_act */
+    w16(0xFFFF9A, tri_apparent(za));           /* Saved_apparent_zone_and_act */
+    w16(0xFFFE2E, (uint16_t)x);                /* Saved_X_pos */
+    w16(0xFFFE30, (uint16_t)y);                /* Saved_Y_pos */
+    w16(0xFFFE32, (uint16_t)rings);            /* Saved_ring_count */
+    w32(0xFFFE34, 0);                          /* Saved_timer */
+    w16(0xFFFE38, 0x0680);                     /* Saved_art_tile */
+    w16(0xFFFE3A, 0x0C0D);                     /* Saved_solid_bits */
+    w16(0xFFFE3C, (uint16_t)(x > 0xA0 ? x - 0xA0 : 0));  /* Saved_camera_X_pos */
+    w16(0xFFFE3E, (uint16_t)(y > 0x60 ? y - 0x60 : 0));  /* Saved_camera_Y_pos */
+    w16(0xFFFE44, (uint16_t)my);               /* Saved_camera_max_Y_pos */
+    w8(0xFFFE46, (uint8_t)rt);                 /* Saved_dynamic_resize_routine */
+    w16(0xFFFE40, water);                      /* Saved_mean_water_level */
+}
+
 /* Development entry: TRILOGY_ZONE=2000 (hex zone/act) replaces the first
  * level the game loads. */
 static void dev_force_zone(void)
@@ -48,23 +70,9 @@ static void dev_force_zone(void)
     const char *st = getenv("TRILOGY_START");
     unsigned x = 0, y = 0, my = 0x1000, rt = 0;
     if (st && *st && sscanf(st, "%x,%x,%x,%x", &x, &y, &my, &rt) >= 2) {
-        w8(0xFFFE2B, 1);                       /* Saved_last_star_post_hit */
-        w8(RAM_Last_star_post_hit, 1);
-        w16(0xFFFE2C, za);                     /* Saved_zone_and_act */
-        w16(0xFFFF9A, tri_apparent(za));       /* Saved_apparent_zone_and_act */
-        w16(0xFFFE2E, (uint16_t)x);            /* Saved_X_pos */
-        w16(0xFFFE30, (uint16_t)y);            /* Saved_Y_pos */
         const char *rg = getenv("TRILOGY_RINGS");   /* development: start with rings */
-        w16(0xFFFE32, (uint16_t)(rg && *rg ? atoi(rg) : 0));  /* Saved_ring_count */
-        w32(0xFFFE34, 0);                      /* Saved_timer */
-        w16(0xFFFE38, 0x0680);                 /* Saved_art_tile */
-        w16(0xFFFE3A, 0x0C0D);                 /* Saved_solid_bits */
-        w16(0xFFFE3C, (uint16_t)(x > 0xA0 ? x - 0xA0 : 0));  /* Saved_camera_X_pos */
-        w16(0xFFFE3E, (uint16_t)(y > 0x60 ? y - 0x60 : 0));  /* Saved_camera_Y_pos */
-        w16(0xFFFE44, (uint16_t)my);           /* Saved_camera_max_Y_pos */
-        w8(0xFFFE46, (uint8_t)rt);             /* Saved_dynamic_resize_routine */
         extern uint16_t tri_water_start_y(void);
-        w16(0xFFFE40, tri_water_start_y());    /* Saved_mean_water_level */
+        starpost_start(za, x, y, my, rt, rg && *rg ? (unsigned)atoi(rg) : 0, tri_water_start_y());
         fprintf(stderr, "[trilogy] dev: start at %X,%X\n", x, y);
     }
 }
@@ -166,6 +174,20 @@ int tri_level_hook(uint32_t pc)
             s_next_za = 0xFFFF;
         }
         dev_force_zone();
+        {   /* Easy: an S3K zone starts at its act 2 (StartNewLevel's next zone, a
+             * Data Select continue, the new game); the others' acts are routed */
+            uint16_t za = r16(RAM_Current_zone_and_act), e = tri_easy_act(za);
+            if (e != za && (za >> 8) < TRI_ZONE_BASE) {
+                w16(RAM_Current_zone_and_act, e);
+                w16(RAM_Apparent_zone_and_act, e);
+                fprintf(stderr, "[trilogy] easy: $%04X -> $%04X\n", za, e);
+                /* Where act 2 begins in play (its title card), not the level
+                 * select's spot: only AIZ2's differs, for Sonic and Tails -
+                 * the arena after act 1's miniboss (Knuckles' start is his) */
+                if (e == 0x0001 && r16(RAM_Player_mode) != 3 && !r8(RAM_Last_star_post_hit))
+                    starpost_start(e, 0x1180, 0x35A, 0x590, 0, 0, 0x528);
+            }
+        }
         if (tri_cd_zone(tri_zone()))                 /* a Sonic CD level: into the bank's window first */
             tri_scd_map(r16(RAM_Current_zone_and_act));
         tri_flow_level_entry();

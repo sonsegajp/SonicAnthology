@@ -393,7 +393,7 @@ static int pod_step(uint32_t o)                               /* the routine; 0:
     switch (OB8(o, OBJ_routine)) {
     case 0: {                                                 /* [$20BA9E] egg4air_ini */
         set_coll(o, 0x3D);
-        SET8(o, OBJ_coll_prop, 5);
+        SET8(o, OBJ_coll_prop, tri_easy() ? 4 : 5);           /* (beaten at 1: four hits, Easy three) */
         SET8(o, OBJ_status, 1);
         SET8(o, OBJ_routine, 8);
         init(o, SCDA_T3POD, 6, 0x24, 0x38);

@@ -367,10 +367,7 @@ static void ehz_boss(uint32_t o)
         SET8(o, OBJ_y_radius, 0x14);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         SET8(o, OBJ_routine, 2);
         uint32_t a1 = eb_child(o, S2A_EGGPOD, 0x0E, 0x20, 4);    /* top */
         if (a1) {
@@ -1362,10 +1359,7 @@ static void cpz_boss(uint32_t o)
         SET16(o, OBJ_y_pos, 0x4B0);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         SET8(o, OBJ_routine, 2);
         SET32(o, CB_XNEXT, r32(o + OBJ_x_pos));
         SET32(o, CB_YNEXT, r32(o + OBJ_y_pos));
@@ -1920,10 +1914,7 @@ static void arz_boss(uint32_t o)
         bfw.collision = 0;
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         SET8(o, OBJ_frame, 8);                          /* mainspr_mapframe: the Eggmobile */
         SET16(o, AB_HYVEL, (uint16_t)-0x380);
         uint32_t parts = bfw_parts_new(o, S2A_ARZBOSS, 3, 0x20, 0x40);
@@ -2290,10 +2281,7 @@ static void cnz_boss(uint32_t o)
         SET8(o, CZ_ROUTINE, 0);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         bfw.x = (int32_t)0x2A46 << 16;
         bfw.y = (int32_t)0x654 << 16;
         bfw.collision = 0;
@@ -2678,10 +2666,7 @@ static void htz_boss(uint32_t o)
         SET8(o, OBJ_frame, 1);
         SET8(o, OBJ_coll_flags, 0x16);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         bfw.yv = -0xE0;
         bfw.xv = 0;
         bfw.x = (int32_t)0x3040 << 16;
@@ -3009,10 +2994,7 @@ static void mcz_boss(uint32_t o)
         SET8(o, MB_ROUTINE, 2);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         bfw.x = (int32_t)0x21A0 << 16;
         bfw.y = (int32_t)0x560 << 16;
         bfw.xv = 0;
@@ -3494,10 +3476,7 @@ static void ooz_boss(uint32_t o)
         SET8(o, OB_ROUTINE, 0);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         uint32_t parts = bfw_parts_new(o, S2A_OOZBOSS, 0, 0x40, 0x40);
         SET32(o, OB_PARTS, parts);
         memset(bfw.anim, 0, sizeof bfw.anim);
@@ -3854,11 +3833,8 @@ static void mtz_boss(uint32_t o)
         SET8(o, OBJ_routine, 2);
         SET8(o, OBJ_coll_flags, 0x0F);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
-        SET8(o, MZ_LEFT, 7);
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
+        SET8(o, MZ_LEFT, OB8(o, OBJ_coll_prop) - 1);     /* (an orb per hit, the last for the laser phase) */
         bfw.x = (int32_t)0x2B50 << 16;
         bfw.y = (int32_t)0x380 << 16;
         bfw.xv = 0;
@@ -3983,10 +3959,12 @@ static void mtz_orb(uint32_t o)
 {
     uint32_t a1 = r32(o + OR_PARENT) & 0xFFFFFF;
     switch (OB8(o, OBJ_routine)) {
-    case 0: {                                           /* Obj53_Init: seven orbs */
+    case 0: {                                           /* Obj53_Init: seven orbs (fewer with fewer hits) */
         static const uint8_t ph[7] = { 0x24, 0x6C, 0xB4, 0xFC, 0x48, 0x90, 0xD8 };
         static const uint8_t pp[7] = { 0, 1, 1, 0, 1, 1, 0 };
-        for (int k = 0; k < 7; k++) {
+        int n = r32(a1) == S2(0x54) && OB8(a1, MZ_LEFT) < 7 ? OB8(a1, MZ_LEFT) : 7;
+        if (!n) { o_delete(o); return; }
+        for (int k = 0; k < n; k++) {
             uint32_t b = k ? o_alloc() : o;
             if (!b) break;
             SET32(b, OBJ_code, S2(0x53));
@@ -4185,6 +4163,7 @@ static void w_case(uint32_t o)                       /* ObjC5_LaserCase */
         SET8(o, W_2ND, 2);
         SET8(o, OBJ_coll_flags, 0);
         SET8(o, OBJ_coll_prop, 8);
+        tri_boss_hits(o);                       /* (Easy: three) */
         w16(RAM_Camera_max_Y_pos, 0x442);
         w16(RAM_Camera_target_max_Y_pos, 0x442);
         SET16(o, 0x34, OB16(o, OBJ_x_pos) - 0x60);

@@ -40,6 +40,11 @@ static const uint16_t s2_order[] = {
     0x3200,                     /* Death Egg */
 };
 
+/* Easy (trilogy_save.c): each zone's boss act; Scrap Brain, which has none,
+ * its first act before the Final Zone */
+static const uint16_t s1_easy[] = { 0x2002, 0x2202, 0x2402, 0x2102, 0x2302, 0x2500, 0x2502 };
+static const uint16_t s2_easy[] = { 0x2801, 0x2901, 0x2A01, 0x2B01, 0x2C01, 0x2D01, 0x2E01, 0x2F02, 0x3000, 0x3100, 0x3200 };
+
 uint16_t tri_apparent(uint16_t za);
 /* ------------------------------------------------------------------------
  * Giant ring at the end of an act (S1): the ring's flash ends with Sonic
@@ -147,6 +152,16 @@ void tri_flow_level_entry(void)
 uint16_t tri_next_act(uint16_t za)
 {
     int z = za >> 8, act = za & 0xFF;
+    if (tri_easy()) {                            /* Easy: one act per zone */
+        if (tri_cd_zone(z)) {                    /* (Sonic CD: each round's act 3, the good future) */
+            int round = (z - TRI_CD_BASE) / 4;
+            return round < 6 ? (uint16_t)(TRI_CD_ZONE(round + 1, TRI_CD_GOOD) << 8 | 2) : 0;
+        }
+        for (unsigned i = 0; i + 1 < sizeof s1_easy / sizeof s1_easy[0]; i++)
+            if (s1_easy[i] == za) return s1_easy[i + 1];
+        for (unsigned i = 0; i + 1 < sizeof s2_easy / sizeof s2_easy[0]; i++)
+            if (s2_easy[i] == za) return s2_easy[i + 1];
+    }
     if (tri_cd_zone(z)) {                        /* Sonic CD: acts 1, 2 in the present, then act 3's future */
         int round = (z - TRI_CD_BASE) / 4;
         extern int scd_act3_good(int round);
@@ -172,18 +187,33 @@ uint16_t tri_apparent(uint16_t za)
     return za;
 }
 
-/* Final Zone: Eggman got away (id_Ending). Sonic 1 is done: on to Sonic 2's
- * Emerald Hill, emeralds and lives carried over (they stay in RAM). */
-void tri_s1_complete(void)
+/* A game's next game: as the next act (Sonic CD's levels through
+ * tri_level_next, once the old level is gone); none (a one-game file): the
+ * title. */
+static void next_game(uint16_t next)
 {
-    fprintf(stderr, "[trilogy] Sonic 1 complete: on to Emerald Hill\n");
-    tri_ach_act_clear(0x2502);
-    w16(RAM_Current_zone_and_act, 0x2800);
-    w16(RAM_Apparent_zone_and_act, 0x2800);
+    if (!next) {
+        w8(RAM_Game_mode, 0x04);
+        return;
+    }
+    if (tri_cd_zone(next >> 8)) {
+        extern void tri_level_next(uint16_t za);
+        tri_level_next(next);
+    } else {
+        w16(RAM_Current_zone_and_act, next);
+        w16(RAM_Apparent_zone_and_act, tri_apparent(next));
+    }
     w8(RAM_Last_star_post_hit, 0);
     w16(RAM_Restart_level_flag, 1);
-    extern void tri_save_progress(uint16_t next_za);
-    tri_save_progress(0x2800);
+}
+
+/* Final Zone: Eggman got away (id_Ending). Sonic 1 is done: in the Anthology,
+ * on to Sonic CD (or without it Sonic 2), emeralds and lives carried over
+ * (they stay in RAM); a Sonic 1 file is finished. */
+void tri_s1_complete(void)
+{
+    tri_ach_act_clear(0x2502);
+    next_game(tri_after_game(TRI_EXP_S1));
 }
 
 /* SBZ2: the tally does not end the act (Got_SBZ2 / Got_Boundary). Control
@@ -235,12 +265,16 @@ static int results_done(void)
     }
     uint16_t next = tri_next_act(za);
     if (!next && tri_cd_zone(za >> 8)) {         /* Sonic CD done (Metallic Madness act 3, its ending
-                                                  *  played): on to Sonic 2's Emerald Hill, as after Sonic 1 */
+                                                  *  played): in the Anthology, on to Sonic 2 */
         extern void scd_audio_reset(void);
-        fprintf(stderr, "[trilogy] Sonic CD complete after $%04X: on to Emerald Hill\n", za);
         scd_audio_reset();
         s_ss_pending = 0;
-        next = 0x2800;
+        next = tri_after_game(TRI_EXP_CD);
+        if (!next) {                             /* (a Sonic CD file, finished: the title) */
+            next_game(0);
+            o_delete(A(0) & 0xFFFFFF);
+            return 1;
+        }
     }
     if (!next) {
         fprintf(stderr, "[trilogy] campaign complete after $%04X\n", za);

@@ -540,6 +540,7 @@ static void mecha(uint32_t o)
         SET8(o, OBJ_x_radius, 0x10);
         SET8(o, OBJ_coll_flags, 0);
         SET8(o, OBJ_coll_prop, 8);
+        tri_boss_hits(o);                       /* (Easy: three) */
         SET8(o, OBJ_routine, 2);
         mecha_child(o, MS_LED, 0x48, 0x0E);
         mecha_child(o, MS_SPIKE, 0x48, 0x14);
@@ -1101,6 +1102,7 @@ static void rb_body(uint32_t o)                      /* ObjC7_Body */
         SET8(o, OBJ_anim_timer, 0x1F);
         SET8(o, OBJ_coll_flags, 0x16);
         SET8(o, OBJ_coll_prop, 0x0C);
+        tri_boss_hits(o);                       /* (Easy: three) */
         rb_set_collision(o, 1);
         SET8(rb_part(o, 0x38), RB_2ND, 6);
         break;

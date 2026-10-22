@@ -1,6 +1,6 @@
 """Record the Data Select's zone cards from the game itself.
 
-Each zone's act 1 is run headless with TRILOGY_GLIDE=2 (the player runs the
+Each zone's act 1 (Sonic CD's in the present) is run headless with TRILOGY_GLIDE=2 (the player runs the
 act unseen and unhurt, the camera following as in play) and its frames
 are captured, reduced to the 80x56 card (4x4 box average) and packed as
 trilogy_previews.bin beside the executable: so a card is exactly what the
@@ -28,7 +28,11 @@ SHOTS, STEP, SETTLE = 240, 2, 240
 S1 = [0x2000, 0x2200, 0x2400, 0x2100, 0x2300, 0x2500, 0x2502]
 S2 = [(0x28 + i) << 8 for i in range(11)]
 S3K = [0x000, 0x100, 0x200, 0x300, 0x500, 0x600, 0x700, 0x400, 0x800, 0x900, 0x1601, 0xA00, 0xB00, 0xC00]
-ZONES = S1 + S2 + S3K
+# Sonic CD's rounds (act 1, the present) after them: preview ids 32-38, as the
+# game maps its codes (trilogy_save.c, tri_code_preview); only with the disc's
+# levels (scd.bin beside the game)
+CD = [(0x40 + r * 4) << 8 for r in range(7)]
+ZONES = S1 + S2 + S3K + CD
 
 
 def capture(exe_dir, za, tmp):
@@ -92,6 +96,9 @@ def main(argv=None, progress=None):
     for i, za in enumerate(ZONES):
         if progress:
             progress(i, len(ZONES))
+        if za >= 0x4000 and not (exe_dir / 'scd.bin').exists():   # (no Sonic CD: no card)
+            blobs.append((b'', 0))
+            continue
         if only is not None and i not in only:
             blobs.append(old.get(i, (b'', 0)))
             continue

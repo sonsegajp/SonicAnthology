@@ -375,6 +375,8 @@ int trilogy_instruction(uint32_t pc)
         if (pc == TH_GAMELOOP) {
             extern void tri_sound_set_tick(void);
             tri_sound_set_tick();                    /* (the S2 sound set survives driver reloads) */
+            extern void tri_easy_s3k_bosses(void);
+            tri_easy_s3k_bosses();                   /* (Easy: S3K's bosses on three hits) */
         }
         extern int tri_dfall_hook(uint32_t pc);
         if (tri_dfall_hook(pc))

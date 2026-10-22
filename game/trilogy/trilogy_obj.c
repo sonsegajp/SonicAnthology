@@ -914,6 +914,36 @@ void tri_obj_vblank(void)
     }
 }
 
+/* A Sonic 1 / Sonic 2 boss's hit count, its init having set the game's own:
+ * Easy (trilogy_save.c) makes it three. Development: TRILOGY_BOSSHITS=n. */
+void tri_boss_hits(uint32_t o)
+{
+    const char *h = getenv("TRILOGY_BOSSHITS");
+    if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
+    else if (tri_easy() && OB8(o, OBJ_coll_prop) > 3) SET8(o, OBJ_coll_prop, 3);
+}
+
+/* Easy in Sonic 3 & Knuckles' own levels: every boss on three hits. S3K sets
+ * each one's count in its own init (collision_property: 8 for most, 9, $E or
+ * 7 for a few, some counted down by the boss itself), so the object table is
+ * looked over each frame: an enemy (touch category 0) holding 4-14 there is a
+ * boss, brought down to 3. Higher values are S3K's "can't be hurt" markers
+ * ($60, $70, $7F, $FF). Act 1's minibosses never come up: Easy plays act 2. */
+void tri_easy_s3k_bosses(void)
+{
+    if ((r8(RAM_Game_mode) & 0x7F) != 0x0C || tri_zone() >= TRI_ZONE_BASE || !tri_easy()) return;
+    for (uint32_t s = 0; s < 110; s++) {
+        uint32_t o = 0xFFB000u + s * OBJ_SIZE;
+        if (!r32(o)) continue;
+        uint8_t cf = OB8(o, OBJ_coll_flags), cp = OB8(o, OBJ_coll_prop);
+        if (!cf || (cf & 0xC0) || cp < 4 || cp > 14) continue;
+        SET8(o, OBJ_coll_prop, 3);
+        static int log = -1;
+        if (log < 0) log = getenv("TRILOGY_BOSSLOG") != NULL;     /* development */
+        if (log) fprintf(stderr, "[trilogy] easy: boss in slot %u ($%06X) %u hits -> 3\n", (unsigned)s, (unsigned)r32(o), cp);
+    }
+}
+
 /* Touch_Enemy, a boss hit (TH_BOSS_HIT, at its neg.w x_vel(a0)): for S1/S2
  * objects the same hit without the two bytes S3K keeps in the boss ($1C: who
  * hit it, $25: the collision flags to restore) - there S1 and S2 objects keep

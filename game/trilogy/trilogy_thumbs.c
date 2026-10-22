@@ -522,7 +522,8 @@ void tri_thumb_show(int code)
     uint32_t slot = A(0) & 0xFFFFFFu;
     s_cx = (int16_t)r16(slot + OBJ_x_pos) - 40 - 128;
     s_cy = (int16_t)r16(slot + OBJ_y_pos) - 120 - 128;
-    if (load_frames(code)) {
+    extern int tri_code_preview(int code);
+    if (load_frames(tri_code_preview(code))) {
         s_t++;
         s_live = 2;
         memset(s_tiles, 0x11, sizeof s_tiles);       /* the key colour, everywhere */
@@ -531,6 +532,11 @@ void tri_thumb_show(int code)
         return;
     }
     s_live = 0;                                      /* (no recording: drawn here, 15 colours) */
+    if (tri_cd_zone(tri_code_to_za(code) >> 8)) {    /* (Sonic CD's levels are paged in only to play: */
+        memset(s_tiles, 0, sizeof s_tiles);          /*  without its recording, a blank card) */
+        s_pending = 1;
+        return;
+    }
     if (code != s_code) load_zone(code);
     if (!s_ok) return;
     s_camx += SPEED;

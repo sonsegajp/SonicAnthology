@@ -714,10 +714,7 @@ static void boss_final(uint32_t o)
         }
         SET16(o, FZ_STATE, 0);
         SET8(o, OBJ_coll_prop, 8);
-        {   /* development: TRILOGY_BOSSHITS=n */
-            const char *h = getenv("TRILOGY_BOSSHITS");
-            if (h && *h) SET8(o, OBJ_coll_prop, (uint8_t)atoi(h));
-        }
+        tri_boss_hits(o);                       /* (Easy: three; TRILOGY_BOSSHITS) */
         SET16(o, 0x30, 0xFFFF);
     }
     /* fall through */

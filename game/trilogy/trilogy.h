@@ -58,6 +58,21 @@
 #define TRI_GAME_S1     1
 #define TRI_GAME_S2     2
 
+/* A save file's experience, chosen when it starts (trilogy_save.c): the whole
+ * Anthology (Sonic 1, Sonic CD, Sonic 2, Sonic 3 & Knuckles in story order) or
+ * one game; Original, or Easy (one act per zone, its boss's, bosses on three
+ * hits). Kept in the slot's byte 1, which S3K leaves zero. */
+enum { TRI_EXP_ALL, TRI_EXP_S1, TRI_EXP_CD, TRI_EXP_S2, TRI_EXP_S3K, TRI_EXP_COUNT };
+int      tri_experience(void);                 /* the file being played */
+int      tri_easy(void);
+uint16_t tri_easy_act(uint16_t za);            /* a zone's first act -> its Easy act (unchanged if not Easy) */
+uint16_t tri_experience_start(int exp, int easy);   /* the experience's first level */
+/* A game's end (Sonic 1's Final Zone, Sonic CD's Metallic Madness 3, Sonic 2's
+ * ending; `exp` the game, TRI_EXP_S1..): the Anthology's next game's first
+ * level, or 0 when the file plays that game alone - then it is saved
+ * finished, and the caller leaves for the title. */
+uint16_t tri_after_game(int exp);
+
 /* ---- expansion bank ---------------------------------------------------- */
 #define TRI_BANK_BASE   0x400000u
 #define TRI_DIR_OFF     0x40u          /* directory of zone-act entries */

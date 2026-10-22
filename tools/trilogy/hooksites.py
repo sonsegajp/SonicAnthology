@@ -138,6 +138,8 @@ HOOKS = [
     ("SUPER_CHK",       "Sonic_CheckTransform",  r"^blo\.s Sonic_InstaShield", 'at', 0, 'sk'),
     ("SUPER_CHK_K",     "Knux_Test_For_Glide",   r"^blo\.s loc_1786C", 'at', 0, 'sk'),      # (the Chaos Emerald count)
     ("SUPER_CHK_T",     "Tails_Test_For_Flight", r"^blo\.s loc_1515C", 'at', 0, 'sk'),      # (the Super Emerald count)
+    ("HYPER_CHK",       "Sonic_Transform",       r"^blo\.s \.super", 'at', 0, 'sk'),        # (Super or Hyper: the Super Emeralds)
+    ("HYPER_CHK_K",     "Knux_Transform",        r"^blo\.s \.super", 'at', 0, 'sk'),
     ("TAILS_CPU_FLY",   "Tails_Test_For_Flight", r"^beq\.s locret_151A2", 'at', 0, 'sk'),  # (Mania: the CPU flies on Up + jump)
     ("FLOOR_NEG",       "loc_F2F2",              r"^move\.w d2,d1", 'at', 0, 'sk'),   # (FindFloor: a negative height; Sonic CD:
     ("FLOOR2_NEG",      "loc_F394",              r"^move\.w d2,d1", 'at', 0, 'sk'),   #  looking down, a full block, flat)
@@ -165,6 +167,8 @@ HOOKS = [
     ("DS_ZONE_ICON",    "loc_D9A2",              r"^move\.w #tiles_to_bytes", 'at', 0, 'sk'),
     ("DS_LOOP",         "SaveScreen_MainLoop",   r"^jsr \(Process_Sprites\)\.l", 'at', 0, 'sk'),   # (the new ground retires the title sprite)
     ("DS_INIT",         "loc_C72C",              r"^jsr \(Init_SpriteTable\)\.l", 'at', 0, 'sk'),   # (... before its first frame)
+    ("SAVE_WRITE",      "Write_SaveGame",        r"^jsr Write_SRAM\(pc\)", 'at', 0, 'sk'),   # (the files' page: its own SRAM)
+    ("SRAM_LOAD",       "SRAM_Load",             r"^tst\.w \(SK_alone_flag\)\.w", 'at', 0, 'sk'),   # (boot: the first page)
     ("SPRING_NEAR",     "sub_2326C",             r"^cmpi\.b #3,anim\(a0\)", 'at', 0, 'sk'),   # (S1/CD sideways springs: push only)
     ("SPRING_UP",       "loc_22FAE",             r"^move\.w \$30\(a0\),y_vel\(a1\)", 'at', 0, 'sk'),   # (S1/CD up springs let go once fired)
     ("SPRING_UP_SOLID", "Obj_Spring_Up",         r"^move\.w #\$1B,d1", 'at', 0, 'sk'),   # (... and are not solid while they bounce)

@@ -254,6 +254,41 @@ def title_logo(master, width=264):
     return out
 
 
+def game_logo(master, width, max_h, shadow=2):
+    """a game's text logo (design/game_logos/*.png, game_logos.py's Blender
+    renders; the Anthology's own for All) reduced to fit width x max_h, with
+    the title logo's hard offset shadow"""
+    src = Image.open(master).convert('RGBA')
+    src = src.crop(src.getchannel('A').getbbox())
+    w, h = width, round(src.height * width / src.width)
+    if h > max_h:
+        w, h = round(src.width * max_h / src.height), max_h
+    small = src.resize((w, h), Image.LANCZOS, reducing_gap=3.0)
+    a = small.getchannel('A').point(lambda v: 0 if v < 24 else v)
+    small.putalpha(a)
+    if not shadow:
+        return small
+    out = Image.new('RGBA', (w + shadow, h + shadow), (0, 0, 0, 0))
+    hard = a.point(lambda v: 255 if v >= 96 else 0)
+    out.paste(Image.new('RGBA', (w, h), NAVY + (255,)), (shadow, shadow), hard)
+    out.alpha_composite(small, (0, 0))
+    return out
+
+
+def game_logos(games, anthology):
+    """the new file's picker (game_*: the games' logos) and the Data Select's
+    card badges (badge_*: SA, S1, SCD, S2, S3K in their games' styles, and
+    EASY)"""
+    pics = {}
+    short = {'all': 'sa', 's1': 's1', 'cd': 'scd', 's2': 's2', 's3k': 's3k'}
+    for name in ('all', 's1', 'cd', 's2', 's3k'):
+        master = anthology if name == 'all' else Path(games) / (name + '.png')
+        pics['game_' + name] = game_logo(master, 168, 62)
+        pics['badge_' + name] = game_logo(Path(games) / ('badge_%s.png' % short[name]), 48, 16, shadow=1)
+    pics['badge_easy'] = game_logo(Path(games) / 'easy.png', 40, 12, shadow=1)
+    return pics
+
+
 def menu_bg(fonts):
     """Sonic 3's Japanese box: the disc trio, tech doodles, the S&K band"""
     img = Image.new('RGBA', (W, H), PAPER + (255,))
@@ -375,6 +410,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--fonts', default=r'C:\Users\hyper\scd_ref\design\fonts')
     ap.add_argument('--logo', default=r'C:\Users\hyper\scd_ref\design\logo_master.png')
+    ap.add_argument('--games', default=r'C:\Users\hyper\scd_ref\design\game_logos',
+                    help="the games' text logos (scd_ref/design/tools/game_logos.py)")
     ap.add_argument('--out', default=str(ROOT / 'game' / 'trilogy' / 'assets'))
     ap.add_argument('--preview', help='also write PNG previews here')
     a = ap.parse_args()
@@ -390,6 +427,7 @@ def main():
         'ds_tile': ds_tile(fonts),
         'ds_band': ds_band(fonts),
         'title_text': title_text(fonts),
+        **game_logos(a.games, a.logo),
     }
     for name, img in pics.items():
         tga(img, out / (name + '.tga'))

@@ -861,8 +861,9 @@ static void belt(uint32_t o)
         belt_carry(o, m);
         {                                                     /* [$20BFA8] the press ground */
             uint16_t g = (uint16_t)(OB16(o, BL_GRIND) + OB16(o, BL_SPEED));
-            if ((int16_t)g >= 0x5D0) {
-                if (m) SET16(m, M2_HP, OB16(m, M2_HP) - 1);
+            if ((int16_t)g >= 0x5D0) {                        /* (Easy: three at a time - the steps at
+                                                               *  $708 / $4B0 / $258 are all multiples of 3) */
+                if (m) SET16(m, M2_HP, OB16(m, M2_HP) - (tri_easy() ? 3 : 1));
                 g = (uint16_t)(g - 0x5D0);
             }
             SET16(o, BL_GRIND, g);
